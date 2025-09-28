@@ -1,0 +1,25 @@
+{
+  "name": "prompt-goat-sandbox",
+  "version": "1.0.0",
+  "description": "sandbox for electron app",
+  "main": "main/index.js",
+  "scripts": {
+    "test": "echo \"hi\" && exit 1",
+    "start": "electron ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AnanthSankaralingam/prompt-goat-sandbox.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/AnanthSankaralingam/prompt-goat-sandbox/issues"
+  },
+  "homepage": "https://github.com/AnanthSankaralingam/prompt-goat-sandbox#readme",
+  "devDependencies": {
+    "electron": "^38.2.0"
+  }
+}
