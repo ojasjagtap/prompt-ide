@@ -21,6 +21,63 @@ body {
     text-align: center;
 }
 
+.tabs {
+    display: flex;
+    gap: 8px;
+    margin: 12px auto;
+    max-width: 800px;
+    justify-content: center;
+}
+
+.tab-button {
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    background: #f7f7f7;
+    cursor: pointer;
+}
+
+.tab-button.active {
+    background: #e6f0ff;
+    border-color: #7da6ff;
+}
+
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+.controls { display: flex; flex-direction: column; gap: 10px; max-width: 1000px; margin: 0 auto; }
+.control-row { display: flex; align-items: center; gap: 8px; }
+
+#promptInput { flex: 1; padding: 8px; }
+#testButton { padding: 8px 12px; }
+
+.status-row { margin-top: 8px; text-align: center; }
+
+.outputs-grid {
+    margin: 12px auto 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+    max-width: 1000px;
+}
+
+.output-card {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 8px;
+    background: #fff;
+}
+
+.output-card h3 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+}
+
+.output-card pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    margin: 0;
+}
+
 .input-container {
     display: flex;
     gap: 10px;
