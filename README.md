@@ -26,4 +26,14 @@ let's also write notes along the way about production implementation plans, Elec
 
 - cross-platform build: run on windows and mac at least  
 - secure api key input: user provides their own api key, stored only locally 
-- minimal ui/ux polish: clean, developer-oriented interface (split panes for prompt, outputs, and parameters. side panel for history via file system)  
+- minimal ui/ux polish: clean, developer-oriented interface (split panes for prompt, outputs, and parameters. side panel for history via file system)
+
+# TODOs
+
+1. clearly configure build vs test page and incorporate all major params for [generation](https://ollama.readthedocs.io/en/modelfile/#build-from-a-gguf-file) 
+2. allow users to install additional ollama models
+3. enable secure api calls with user inputted API keys
+4. allow users to copy config for a certain model's config based on its output. enable side by side experiments
+5. improve prompt via Promptly.
+6. generate embeddings and implement one prompt improving strategy from arxiv.
+7. rethink UI based on build vs. test
