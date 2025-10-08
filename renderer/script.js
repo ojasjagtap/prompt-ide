@@ -253,7 +253,7 @@ function renderNode(id) {
                 </div>
             </div>
             <div class="node-body">
-                <div class="node-prompt-display">${node.data.promptText || '(empty)'}</div>
+                <div class="node-output-viewer">${node.data.promptText}</div>
             </div>
         `;
     } else if (node.type === 'model') {
@@ -277,7 +277,7 @@ function renderNode(id) {
                     <div class="setting-line">Temperature: ${node.data.temperature}</div>
                     <div class="setting-line">Max Tokens: ${node.data.maxTokens}</div>
                 </div>
-                <div class="node-output-viewer">${node.data.output || '(no output)'}</div>
+                <div class="node-output-viewer">${node.data.output}</div>
             </div>
         `;
     }

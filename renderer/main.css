@@ -385,6 +385,7 @@ body {
     color: #ccc;
     white-space: pre-wrap;
     word-wrap: break-word;
+    min-height: 3em;
     max-height: 300px;
     overflow-y: auto;
     background: #222;
