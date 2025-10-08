@@ -234,7 +234,7 @@ function renderNode(id) {
     nodeEl.style.left = `${screenX}px`;
     nodeEl.style.top = `${screenY}px`;
     nodeEl.style.width = `${node.width}px`;
-    nodeEl.style.height = `${node.height}px`;
+    nodeEl.style.height = 'auto'; // Let content dictate height
     nodeEl.style.transform = `scale(${state.viewport.scale})`;
 
     // Status
@@ -245,12 +245,14 @@ function renderNode(id) {
     if (node.type === 'prompt') {
         nodeEl.innerHTML = `
             <div class="node-header">
-                <span class="node-title">${node.data.title}</span>
-                <span class="node-status-badge">${node.status}</span>
-            </div>
-            <div class="node-pins">
-                <div class="pin-spacer"></div>
-                <div class="pin pin-output" data-pin="text">text</div>
+                <div class="header-top">
+                    <span class="node-title">${node.data.title}</span>
+                    <span class="node-status-badge">${node.status}</span>
+                </div>
+                <div class="header-bottom">
+                    <div class="pin-spacer"></div>
+                    <div class="pin pin-output" data-pin="text">text</div>
+                </div>
             </div>
             <div class="node-body">
                 <div class="node-prompt-display">${node.data.promptText || '(empty)'}</div>
@@ -259,12 +261,14 @@ function renderNode(id) {
     } else if (node.type === 'model') {
         nodeEl.innerHTML = `
             <div class="node-header">
-                <span class="node-title">${node.data.title}</span>
-                <span class="node-status-badge">${node.status}</span>
-            </div>
-            <div class="node-pins">
-                <div class="pin pin-input" data-pin="prompt">prompt</div>
-                <div class="pin-spacer"></div>
+                <div class="header-top">
+                    <span class="node-title">${node.data.title}</span>
+                    <span class="node-status-badge">${node.status}</span>
+                </div>
+                <div class="header-bottom">
+                    <div class="pin pin-input" data-pin="prompt">prompt</div>
+                    <div class="pin-spacer"></div>
+                </div>
             </div>
             <div class="node-body">
                 <div class="node-settings">
@@ -286,6 +290,14 @@ function renderNode(id) {
     pins.forEach(pin => {
         pin.addEventListener('mousedown', onPinMouseDown);
     });
+
+    // Measure and store the actual rendered height
+    // We need to temporarily reset transform to get accurate measurements
+    const currentTransform = nodeEl.style.transform;
+    nodeEl.style.transform = 'scale(1)';
+    const actualHeight = nodeEl.offsetHeight;
+    nodeEl.style.transform = currentTransform;
+    node.height = actualHeight;
 }
 
 function updateNodeDisplay(id) {
