@@ -64,7 +64,7 @@ const state = {
 const TILE_SIZE = 32;
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 2.0;
-const PAN_MARGIN = 300;
+const PAN_MARGIN = 1500;
 const PIN_SNAP_RADIUS = 20;
 const NODE_WIDTH = 240;
 const NODE_MIN_HEIGHT = 120;
@@ -129,6 +129,15 @@ function updateLogsUI() {
         if (filter === 'current' && log.runId !== state.currentRunId) return false;
         return true;
     });
+
+    if (state.logs.length === 0) {
+        logsBody.style.display = 'none';
+        return;
+    }
+
+    if (!state.logsCollapsed) {
+        logsBody.style.display = 'block';
+    }
 
     logsBody.innerHTML = filteredLogs.map(log => {
         const levelClass = `log-level-${log.level}`;
@@ -224,7 +233,9 @@ function renderNode(id) {
     const { x: screenX, y: screenY } = worldToScreen(node.x, node.y);
     nodeEl.style.left = `${screenX}px`;
     nodeEl.style.top = `${screenY}px`;
-    nodeEl.style.width = `${node.width * state.viewport.scale}px`;
+    nodeEl.style.width = `${node.width}px`;
+    nodeEl.style.height = `${node.height}px`;
+    nodeEl.style.transform = `scale(${state.viewport.scale})`;
 
     // Status
     nodeEl.classList.toggle('node-selected', node.id === state.selectedNodeId);
@@ -1211,6 +1222,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     renderGrid();
     updateInspector();
     updateRunButton();
+    updateLogsUI();
 
     // Handle resize
     window.addEventListener('resize', () => {
