@@ -130,11 +130,6 @@ function updateLogsUI() {
         return true;
     });
 
-    if (state.logs.length === 0) {
-        logsBody.style.display = 'none';
-        return;
-    }
-
     if (!state.logsCollapsed) {
         logsBody.style.display = 'block';
     }
@@ -251,7 +246,10 @@ function renderNode(id) {
                 </div>
                 <div class="header-bottom">
                     <div class="pin-spacer"></div>
-                    <div class="pin pin-output" data-pin="text">text</div>
+                    <div class="pin-container pin-output-container">
+                        <span class="pin-label">text</span>
+                        <div class="pin pin-output" data-pin="text"></div>
+                    </div>
                 </div>
             </div>
             <div class="node-body">
@@ -266,7 +264,10 @@ function renderNode(id) {
                     <span class="node-status-badge">${node.status}</span>
                 </div>
                 <div class="header-bottom">
-                    <div class="pin pin-input" data-pin="prompt">prompt</div>
+                    <div class="pin-container pin-input-container">
+                        <div class="pin pin-input" data-pin="prompt"></div>
+                        <span class="pin-label">prompt</span>
+                    </div>
                     <div class="pin-spacer"></div>
                 </div>
             </div>
@@ -857,6 +858,12 @@ function onPinMouseDown(e) {
     e.preventDefault();
 
     const pinEl = e.target;
+
+    // Prevent wiring from input pins
+    if (pinEl.classList.contains('pin-input')) {
+        return;
+    }
+
     const nodeEl = pinEl.closest('.flow-node');
     const nodeId = nodeEl.id;
     const pinName = pinEl.dataset.pin;
