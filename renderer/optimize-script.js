@@ -87,9 +87,9 @@ function isValidOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin)
         return true;
     }
 
-    // Allow Optimize.prompt → Model.prompt
+    // Allow Optimize.prompt → Model.system
     if (sourceNode.type === 'optimize' && sourcePin === 'prompt' &&
-        targetNode.type === 'model' && targetPin === 'prompt') {
+        targetNode.type === 'model' && targetPin === 'system') {
         return true;
     }
 
@@ -123,7 +123,7 @@ Do not include any other text or explanations.`;
  */
 function findOptimizeNodesToRun(edges, nodes) {
     const optimizeNodesToRun = [];
-    
+
     for (const edge of edges.values()) {
         const targetNode = nodes.get(edge.targetNodeId);
         if (targetNode?.type === 'optimize') {
@@ -132,17 +132,28 @@ function findOptimizeNodesToRun(edges, nodes) {
                 // Find the original prompt components for this model
                 let originalSystemPrompt = '';
                 let originalUserInput = '';
+
                 for (const promptEdge of edges.values()) {
                     if (promptEdge.targetNodeId === sourceNode.id) {
-                        const promptNode = nodes.get(promptEdge.sourceNodeId);
-                        if (promptNode?.type === 'prompt') {
-                            originalSystemPrompt = promptNode.data.systemPrompt;
-                            originalUserInput = promptNode.data.userInput;
-                            break;
+                        const inputNode = nodes.get(promptEdge.sourceNodeId);
+
+                        // Get user input from user → model.user
+                        if (inputNode?.type === 'user' && promptEdge.targetPin === 'user') {
+                            originalUserInput = inputNode.data.promptText || '';
+                        }
+
+                        // Get system prompt from system → model.system
+                        if (inputNode?.type === 'system' && promptEdge.targetPin === 'system') {
+                            originalSystemPrompt = inputNode.data.promptText || '';
+                        }
+
+                        // Get system prompt from optimize → model.system
+                        if (inputNode?.type === 'optimize' && promptEdge.targetPin === 'system') {
+                            originalSystemPrompt = inputNode.data.optimizedSystemPrompt || '';
                         }
                     }
                 }
-                
+
                 optimizeNodesToRun.push({
                     optimizeNode: targetNode,
                     originalSystemPrompt: originalSystemPrompt,
@@ -153,7 +164,7 @@ function findOptimizeNodesToRun(edges, nodes) {
             }
         }
     }
-    
+
     return optimizeNodesToRun;
 }
 

@@ -173,11 +173,15 @@ function createNode(type, worldX, worldY) {
         data: {}
     };
 
-    if (type === 'prompt') {
+    if (type === 'system') {
         node.data = {
-            title: 'Prompt',
-            systemPrompt: '',
-            userInput: ''
+            title: 'System',
+            promptText: ''
+        };
+    } else if (type === 'user') {
+        node.data = {
+            title: 'User',
+            promptText: ''
         };
     } else if (type === 'model') {
         node.data = {
@@ -248,7 +252,7 @@ function renderNode(id) {
     nodeEl.dataset.status = node.status;
 
     // Content
-    if (node.type === 'prompt') {
+    if (node.type === 'system' || node.type === 'user') {
         nodeEl.innerHTML = `
             <div class="node-header">
                 <div class="header-top">
@@ -264,10 +268,7 @@ function renderNode(id) {
                 </div>
             </div>
             <div class="node-body">
-                <div class="node-settings">
-                    <div class="setting-line">System: ${node.data.systemPrompt || 'None'}</div>
-                    <div class="setting-line">User: ${node.data.userInput || 'None'}</div>
-                </div>
+                <div class="node-output-viewer">${node.data.promptText || ''}</div>
             </div>
         `;
     } else if (node.type === 'model') {
@@ -279,14 +280,21 @@ function renderNode(id) {
                 </div>
                 <div class="header-bottom">
                     <div class="pin-container pin-input-container">
-                        <div class="pin pin-input" data-pin="prompt"></div>
-                        <span class="pin-label">prompt</span>
+                        <div class="pin pin-input" data-pin="system"></div>
+                        <span class="pin-label">system</span>
                     </div>
                     <div class="pin-spacer"></div>
                     <div class="pin-container pin-output-container">
                         <span class="pin-label">output</span>
                         <div class="pin pin-output" data-pin="output"></div>
                     </div>
+                </div>
+                <div class="header-bottom">
+                    <div class="pin-container pin-input-container">
+                        <div class="pin pin-input" data-pin="user"></div>
+                        <span class="pin-label">user</span>
+                    </div>
+                    <div class="pin-spacer"></div>
                 </div>
             </div>
             <div class="node-body">
@@ -381,9 +389,15 @@ function isValidConnection(sourceNodeId, sourcePin, targetNodeId, targetPin) {
     if (!sourceNode || !targetNode) return false;
     if (sourceNode.id === targetNode.id) return false;
 
-    // Only allow: Prompt.text (output) -> Model.prompt (input)
-    if (sourceNode.type === 'prompt' && sourcePin === 'text' &&
-        targetNode.type === 'model' && targetPin === 'prompt') {
+    // Allow: User.text (output) -> Model.user (input)
+    if (sourceNode.type === 'user' && sourcePin === 'text' &&
+        targetNode.type === 'model' && targetPin === 'user') {
+        return true;
+    }
+
+    // Allow: System.text (output) -> Model.system (input)
+    if (sourceNode.type === 'system' && sourcePin === 'text' &&
+        targetNode.type === 'model' && targetPin === 'system') {
         return true;
     }
 
@@ -536,19 +550,15 @@ function updateInspector() {
         return;
     }
 
-    if (node.type === 'prompt') {
+    if (node.type === 'system' || node.type === 'user') {
         inspectorContent.innerHTML = `
             <div class="inspector-section">
                 <label>Title</label>
                 <input type="text" id="inspectorTitle" class="inspector-input" value="${node.data.title}">
             </div>
             <div class="inspector-section">
-                <label>System Prompt</label>
-                <textarea id="inspectorSystemPrompt" class="inspector-textarea" rows="6">${node.data.systemPrompt}</textarea>
-            </div>
-            <div class="inspector-section">
-                <label>User Input</label>
-                <textarea id="inspectorUserInput" class="inspector-textarea" rows="4">${node.data.userInput}</textarea>
+                <label>Prompt Text</label>
+                <textarea id="inspectorPromptText" class="inspector-textarea" rows="10">${node.data.promptText}</textarea>
             </div>
         `;
 
@@ -557,13 +567,8 @@ function updateInspector() {
             updateNodeDisplay(node.id);
         });
 
-        document.getElementById('inspectorSystemPrompt').addEventListener('input', (e) => {
-            node.data.systemPrompt = e.target.value;
-            updateNodeDisplay(node.id);
-        });
-
-        document.getElementById('inspectorUserInput').addEventListener('input', (e) => {
-            node.data.userInput = e.target.value;
+        document.getElementById('inspectorPromptText').addEventListener('input', (e) => {
+            node.data.promptText = e.target.value;
             updateNodeDisplay(node.id);
         });
     } else if (node.type === 'model') {
@@ -592,7 +597,7 @@ function updateInspector() {
                 <input type="number" id="inspectorMaxTokens" class="inspector-input" value="${node.data.maxTokens}" min="1">
             </div>
             <div class="inspector-section">
-                <label>Output (Read-only)</label>
+                <label>Output</label>
                 <textarea id="inspectorOutput" class="inspector-textarea" rows="10" readonly>${node.data.output}</textarea>
             </div>
         `;
@@ -835,8 +840,6 @@ function onCanvasMouseUp(e) {
                     hoveredPin.nodeId,
                     hoveredPin.pinName
                 );
-            } else {
-                showTooltip('Incompatible pins', e.clientX, e.clientY);
             }
         }
 
@@ -979,12 +982,12 @@ function updateRunButton() {
 }
 
 function checkForRunnablePath() {
-    // Check if there's at least one valid path from Prompt to Model or Optimize to Model
+    // Check if there's at least one valid path from System/User to Model or Optimize to Model
     for (const edge of state.edges.values()) {
         const sourceNode = state.nodes.get(edge.sourceNodeId);
         const targetNode = state.nodes.get(edge.targetNodeId);
 
-        if ((sourceNode?.type === 'prompt' || sourceNode?.type === 'optimize') && targetNode?.type === 'model') {
+        if ((sourceNode?.type === 'system' || sourceNode?.type === 'user' || sourceNode?.type === 'optimize') && targetNode?.type === 'model') {
             return true;
         }
     }
@@ -1015,11 +1018,11 @@ async function runFlow() {
     // Validate: check for empty prompts and missing models
     let hasError = false;
     for (const edge of state.edges.values()) {
-        const promptNode = state.nodes.get(edge.sourceNodeId);
-        if (promptNode?.type === 'prompt') {
-            if (!promptNode.data.systemPrompt.trim() && !promptNode.data.userInput.trim()) {
-                addLog('error', `System prompt or user input is required for node ${promptNode.data.title}`);
-                setNodeStatus(promptNode.id, 'error');
+        const sourceNode = state.nodes.get(edge.sourceNodeId);
+        if (sourceNode?.type === 'system' || sourceNode?.type === 'user') {
+            if (!sourceNode.data.promptText || !sourceNode.data.promptText.trim()) {
+                addLog('error', `Prompt text is required for node ${sourceNode.data.title}`);
+                setNodeStatus(sourceNode.id, 'error');
                 hasError = true;
             }
         }
@@ -1044,54 +1047,60 @@ async function runFlow() {
         return;
     }
 
-    // Build execution plan: find all Model nodes with incoming edges
-    const modelNodesToRun = [];
+    // Build execution plan: find all Model nodes and their inputs
+    const modelNodesMap = new Map(); // modelNodeId -> { modelNode, userPrompt, systemPrompt }
+
     for (const edge of state.edges.values()) {
         const targetNode = state.nodes.get(edge.targetNodeId);
+        const sourceNode = state.nodes.get(edge.sourceNodeId);
+
         if (targetNode?.type === 'model') {
-            const sourceNode = state.nodes.get(edge.sourceNodeId);
-            if (sourceNode?.type === 'prompt') {
-                // Combine system prompt and user input
-                const combinedPrompt = sourceNode.data.systemPrompt && sourceNode.data.userInput 
-                    ? `System: ${sourceNode.data.systemPrompt}\n\nUser: ${sourceNode.data.userInput}`
-                    : sourceNode.data.systemPrompt || sourceNode.data.userInput || '';
-                
-                modelNodesToRun.push({
+            // Initialize model node entry if not exists
+            if (!modelNodesMap.has(targetNode.id)) {
+                modelNodesMap.set(targetNode.id, {
                     modelNode: targetNode,
-                    promptText: combinedPrompt
-                });
-            } else if (sourceNode?.type === 'optimize') {
-                // Find the original user input from the prompt node that fed into the model
-                let originalUserInput = '';
-                for (const promptEdge of state.edges.values()) {
-                    if (promptEdge.targetNodeId === sourceNode.id) {
-                        const modelNode = state.nodes.get(promptEdge.sourceNodeId);
-                        if (modelNode?.type === 'model') {
-                            // Find the prompt node that fed into this model
-                            for (const originalPromptEdge of state.edges.values()) {
-                                if (originalPromptEdge.targetNodeId === modelNode.id) {
-                                    const promptNode = state.nodes.get(originalPromptEdge.sourceNodeId);
-                                    if (promptNode?.type === 'prompt') {
-                                        originalUserInput = promptNode.data.userInput;
-                                        break;
-                                    }
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-                
-                // Combine optimized system prompt with original user input
-                const combinedPrompt = sourceNode.data.optimizedSystemPrompt && originalUserInput 
-                    ? `System: ${sourceNode.data.optimizedSystemPrompt}\n\nUser: ${originalUserInput}`
-                    : sourceNode.data.optimizedSystemPrompt || originalUserInput || '';
-                
-                modelNodesToRun.push({
-                    modelNode: targetNode,
-                    promptText: combinedPrompt
+                    userPrompt: '',
+                    systemPrompt: ''
                 });
             }
+
+            const modelData = modelNodesMap.get(targetNode.id);
+
+            // Handle user input
+            if (edge.targetPin === 'user' && sourceNode?.type === 'user') {
+                modelData.userPrompt = sourceNode.data.promptText || '';
+            }
+
+            // Handle system input from system node
+            if (edge.targetPin === 'system' && sourceNode?.type === 'system') {
+                modelData.systemPrompt = sourceNode.data.promptText || '';
+            }
+
+            // Handle system input from optimize
+            if (edge.targetPin === 'system' && sourceNode?.type === 'optimize') {
+                modelData.systemPrompt = sourceNode.data.optimizedSystemPrompt || '';
+            }
+        }
+    }
+
+    // Build the final execution list
+    const modelNodesToRun = [];
+    for (const modelData of modelNodesMap.values()) {
+        // Combine system and user prompts
+        let combinedPrompt = '';
+        if (modelData.systemPrompt && modelData.userPrompt) {
+            combinedPrompt = `System: ${modelData.systemPrompt}\n\nUser: ${modelData.userPrompt}`;
+        } else if (modelData.systemPrompt) {
+            combinedPrompt = `System: ${modelData.systemPrompt}`;
+        } else if (modelData.userPrompt) {
+            combinedPrompt = `User: ${modelData.userPrompt}`;
+        }
+
+        if (combinedPrompt) {
+            modelNodesToRun.push({
+                modelNode: modelData.modelNode,
+                promptText: combinedPrompt
+            });
         }
     }
 
@@ -1142,13 +1151,11 @@ async function runFlow() {
         } catch (error) {
             if (error.name === 'AbortError') {
                 setNodeStatus(modelNode.id, 'error');
-                modelNode.data.output = 'Canceled by user';
                 updateNodeDisplay(modelNode.id);
                 addLog('warn', 'run_canceled');
                 break;
             } else {
                 setNodeStatus(modelNode.id, 'error');
-                modelNode.data.output = `Error: ${error.message}`;
                 updateNodeDisplay(modelNode.id);
                 addLog('error', `node_error: ${modelNode.data.title} (${modelNode.id}) - ${error.message}`);
             }
