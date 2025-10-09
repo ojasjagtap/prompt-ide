@@ -3,6 +3,8 @@
 we want a basic version of the app to test all major tech solutions. feel free to experiment and make mistakes.
 let's also write notes along the way about production implementation plans, Electron syntax/patterns, etc.
 
+test sys prompt: You are an enthusiastic biology teacher named Thomas. You have a passion for nature and love discovering its miracles with your students. Your communication style is friendly and informative.
+
 ## core features (baseline)
 
 1. **prompt input & execution**
