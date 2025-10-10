@@ -70,8 +70,8 @@ const state = {
 
     // Logs
     logs: [],
-    logsCollapsed: false,
     logsFilter: 'all',
+    logsManuallyResized: false,
 
     // Models
     availableModels: []
@@ -150,10 +150,6 @@ function updateLogsUI() {
         return true;
     });
 
-    if (!state.logsCollapsed) {
-        logsBody.style.display = 'block';
-    }
-
     logsBody.innerHTML = filteredLogs.map(log => {
         const levelClass = `log-level-${log.level}`;
         return `
@@ -165,6 +161,17 @@ function updateLogsUI() {
         `;
     }).join('');
 
+    // Auto-expand only if not manually resized
+    if (!state.logsManuallyResized && filteredLogs.length > 0) {
+        const lineHeight = 24; // Approximate height of one log entry
+        const headerHeight = 0;
+        const padding = 16;
+        const maxAutoHeight = 250;
+        const calculatedHeight = Math.min(filteredLogs.length * lineHeight + padding, maxAutoHeight);
+        logsBody.style.height = `${calculatedHeight}px`;
+    }
+
+    // Always scroll to bottom
     logsBody.scrollTop = logsBody.scrollHeight;
 }
 
@@ -823,6 +830,7 @@ function onCanvasMouseDown(e) {
     if (e.target === container || e.target.id === 'gridCanvas') {
         state.selectedNodeId = null;
         state.selectedEdgeId = null;
+        state.nodes.forEach((_, id) => updateNodeDisplay(id));
         updateInspector();
         renderEdges();
 
@@ -1553,21 +1561,6 @@ document.addEventListener('DOMContentLoaded', async function() {
     document.getElementById('runButton').addEventListener('click', runFlow);
     document.getElementById('cancelButton').addEventListener('click', cancelRun);
 
-    // Logs collapse
-    document.getElementById('logsCollapseButton').addEventListener('click', () => {
-        const logsBody = document.getElementById('logsBody');
-        const button = document.getElementById('logsCollapseButton');
-        state.logsCollapsed = !state.logsCollapsed;
-
-        if (state.logsCollapsed) {
-            logsBody.style.display = 'none';
-            button.textContent = 'Expand';
-        } else {
-            logsBody.style.display = 'block';
-            button.textContent = 'Collapse';
-        }
-    });
-
     // Logs filter
     document.getElementById('logsFilter').addEventListener('change', (e) => {
         state.logsFilter = e.target.value;
@@ -1576,6 +1569,12 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     // Keyboard
     document.addEventListener('keydown', onKeyDown);
+
+    // Inspector panel resize
+    setupInspectorResize();
+
+    // Logs panel resize
+    setupLogsResize();
 
     // Initial render
     renderGrid();
@@ -1588,3 +1587,103 @@ document.addEventListener('DOMContentLoaded', async function() {
         renderAll();
     });
 });
+
+// ============================================================================
+// INSPECTOR RESIZE
+// ============================================================================
+
+function setupInspectorResize() {
+    const rightPanel = document.getElementById('rightPanel');
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    rightPanel.addEventListener('mousedown', (e) => {
+        const rect = rightPanel.getBoundingClientRect();
+        const edgeThreshold = 4;
+
+        // Check if mouse is near the left edge
+        if (e.clientX >= rect.left && e.clientX <= rect.left + edgeThreshold) {
+            isResizing = true;
+            startX = e.clientX;
+            startWidth = rect.width;
+            rightPanel.classList.add('resizing');
+            document.body.style.cursor = 'ew-resize';
+            e.preventDefault();
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+
+        const deltaX = startX - e.clientX; // Note: reversed because we're dragging left edge
+        const newWidth = startWidth + deltaX;
+
+        // Clamp between min and max width
+        const minWidth = 280;
+        const maxWidth = 600;
+        const clampedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+
+        rightPanel.style.width = `${clampedWidth}px`;
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            rightPanel.classList.remove('resizing');
+            document.body.style.cursor = '';
+        }
+    });
+}
+
+// ============================================================================
+// LOGS RESIZE
+// ============================================================================
+
+function setupLogsResize() {
+    const logsPanel = document.getElementById('logsPanel');
+    const logsBody = document.getElementById('logsBody');
+    let isResizing = false;
+    let startY = 0;
+    let startHeight = 0;
+
+    logsPanel.addEventListener('mousedown', (e) => {
+        const rect = logsPanel.getBoundingClientRect();
+        const edgeThreshold = 4;
+
+        // Check if mouse is near the top edge
+        if (e.clientY >= rect.top && e.clientY <= rect.top + edgeThreshold) {
+            isResizing = true;
+            startY = e.clientY;
+            startHeight = logsBody.offsetHeight;
+            logsPanel.classList.add('resizing');
+            document.body.style.cursor = 'ns-resize';
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+
+        const deltaY = startY - e.clientY; // Note: reversed because we're dragging top edge
+        const newHeight = startHeight + deltaY;
+
+        // Clamp between min and max height
+        const minHeight = 0;
+        const maxHeight = 600;
+        const clampedHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
+
+        logsBody.style.height = `${clampedHeight}px`;
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            logsPanel.classList.remove('resizing');
+            document.body.style.cursor = '';
+            // Mark as manually resized so auto-expansion stops
+            state.logsManuallyResized = true;
+        }
+    });
+}
