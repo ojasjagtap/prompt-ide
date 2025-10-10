@@ -1,5 +1,5 @@
 /**
- * Tool (Callable) Node Helper
+ * Custom Tool Node Helper
  * Handles Tool node creation, rendering, validation, and registration
  */
 
@@ -57,7 +57,6 @@ function renderToolNode(node, connectedModels) {
                 <span class="node-status-badge">${node.status}</span>
             </div>
             <div class="header-bottom">
-                <span class="node-badge">callable</span>
                 <div class="pin-spacer"></div>
                 <div class="pin-container pin-output-container">
                     <span class="pin-label">register</span>
@@ -88,12 +87,79 @@ function renderToolInspector(node, updateNodeDisplay, addLog) {
             <textarea id="inspectorToolDescription" class="inspector-textarea" rows="3">${node.data.description}</textarea>
         </div>
         <div class="inspector-section">
-            <label>Parameters Schema (JSON)</label>
+            <div class="label-with-info">
+                <label>Parameters Schema (JSON)</label>
+                <span class="info-icon">i
+                    <div class="info-tooltip">
+                        <div class="info-tooltip-title">Parameter Schema Guidelines</div>
+                        <div class="info-tooltip-section">
+                            <div class="info-tooltip-label">Structure:</div>
+                            Define a JSON schema with:
+                            <ul class="info-tooltip-list">
+                                <li><code>type</code>: Always "object"</li>
+                                <li><code>properties</code>: Define each parameter with its type</li>
+                                <li><code>required</code>: Array of required parameter names</li>
+                            </ul>
+                        </div>
+                        <div class="info-tooltip-section">
+                            <div class="info-tooltip-label">Example:</div>
+                            <div class="info-tooltip-code">{
+  "type": "object",
+  "properties": {
+    "path": { "type": "string" },
+    "encoding": { "type": "string" }
+  },
+  "required": ["path"]
+}</div>
+                        </div>
+                        <div class="info-tooltip-section">
+                            <div class="info-tooltip-label">Supported Types:</div>
+                            string, number, boolean, object, array
+                        </div>
+                    </div>
+                </span>
+            </div>
             <textarea id="inspectorToolParams" class="inspector-textarea" rows="8">${paramsJson}</textarea>
-            <div class="inspector-hint">Fixed schema with required "path" string parameter</div>
         </div>
         <div class="inspector-section">
-            <label>Implementation (JavaScript)</label>
+            <div class="label-with-info">
+                <label>Implementation (JavaScript)</label>
+                <span class="info-icon">i
+                    <div class="info-tooltip">
+                        <div class="info-tooltip-title">Implementation Guidelines</div>
+                        <div class="info-tooltip-section">
+                            <div class="info-tooltip-label">Code Structure:</div>
+                            Your code receives an <code>args</code> object matching your schema and must return a result or throw an error.
+                        </div>
+                        <div class="info-tooltip-section">
+                            <div class="info-tooltip-label">Return Types:</div>
+                            <ul class="info-tooltip-list">
+                                <li><strong>String:</strong> Return text directly</li>
+                                <li><strong>JSON:</strong> Return an object or array</li>
+                                <li><strong>Binary:</strong> Return a Buffer or base64 string</li>
+                            </ul>
+                        </div>
+                        <div class="info-tooltip-section">
+                            <div class="info-tooltip-label">Example:</div>
+                            <div class="info-tooltip-code">const fs = require('fs');
+
+function myTool(args) {
+  const data = fs.readFileSync(
+    args.path, 'utf-8'
+  );
+  return data; // string
+}
+
+return myTool(args);</div>
+                        </div>
+                        <div class="info-tooltip-section">
+                            <div class="info-tooltip-label">Error Handling:</div>
+                            Throw errors with descriptive messages:<br/>
+                            <code>throw new Error('message')</code>
+                        </div>
+                    </div>
+                </span>
+            </div>
             <textarea id="inspectorToolCode" class="inspector-textarea code-editor" rows="15">${node.data.implementation.code}</textarea>
         </div>
         <div class="inspector-section">

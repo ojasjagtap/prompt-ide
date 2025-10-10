@@ -396,9 +396,9 @@ function createEdge(sourceNodeId, sourcePin, targetNodeId, targetPin) {
     // Log tool registration
     const sourceNode = state.nodes.get(sourceNodeId);
     const targetNode = state.nodes.get(targetNodeId);
-    if (sourceNode?.type === 'tool' && targetNode?.type === 'model' && targetPin === 'tools') {
-        addLog('info', `tool_registered: ${sourceNode.data.name} → ${targetNode.data.title} (${sourceNodeId} → ${targetNodeId})`);
-    }
+    // if (sourceNode?.type === 'tool' && targetNode?.type === 'model' && targetPin === 'tools') {
+    //     addLog('info', `tool_registered: ${sourceNode.data.name} → ${targetNode.data.title} (${sourceNodeId} → ${targetNodeId})`);
+    // }
 
     renderEdges();
     updateRunButton();
@@ -1182,9 +1182,13 @@ async function runFlow() {
         const registeredTools = findRegisteredTools(modelNode.id, state.edges, state.nodes);
         const toolsCatalog = buildToolsCatalog(registeredTools);
 
-        if (toolsCatalog.length > 0) {
-            addLog('info', `Model has ${toolsCatalog.length} registered tool(s): ${toolsCatalog.map(t => t.name).join(', ')}`);
-        }
+        // if (toolsCatalog.length > 0) {
+        //     addLog('info', `Model has ${toolsCatalog.length} registered tool(s): ${toolsCatalog.map(t => t.name).join(', ')}`);
+        //     // Log the full catalog for debugging
+        //     toolsCatalog.forEach(tool => {
+        //         addLog('info', `  - ${tool.name}: ${tool.description}`);
+        //     });
+        // }
 
         const startTime = Date.now();
 
@@ -1280,19 +1284,34 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
         iterationCount++;
 
         // Prepare request
-        const requestBody = adapter.prepareRequest({
+        const preparedRequest = adapter.prepareRequest({
             prompt,
             toolsCatalog,
             settings,
             sessionState
         });
 
-        // Make API request
-        const url = 'http://localhost:11434/api/generate';
+        // Log messages being sent for debugging (iteration > 1 means we're in tool result flow)
+        // if (iterationCount > 1 && preparedRequest.body.messages) {
+        //     addLog('info', `Sending ${preparedRequest.body.messages.length} message(s) to model:`);
+        //     preparedRequest.body.messages.forEach((msg, idx) => {
+        //         const preview = msg.content ? msg.content.substring(0, 100) : '[no content]';
+        //         const toolInfo = msg.tool_calls ? ` [${msg.tool_calls.length} tool_call(s)]` : '';
+        //         addLog('info', `  [${idx}] ${msg.role}: ${preview}${toolInfo}`);
+        //     });
+        // }
+
+        // Use chat endpoint for tools, generate endpoint otherwise
+        const url = preparedRequest.useChat
+            ? 'http://localhost:11434/api/chat'
+            : 'http://localhost:11434/api/generate';
+
+        // addLog('info', `Using ${preparedRequest.useChat ? 'chat' : 'generate'} endpoint`);
+
         const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody),
+            body: JSON.stringify(preparedRequest.body),
             signal
         });
 
@@ -1341,6 +1360,9 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
             break;
         }
 
+        // Log detected tool calls
+        addLog('info', `Model requested ${pendingToolCalls.length} tool call(s): ${pendingToolCalls.map(tc => tc.name).join(', ')}`);
+
         // Execute tool calls
         let hasToolError = false;
         for (const toolCall of pendingToolCalls) {
@@ -1366,7 +1388,7 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
             }
 
             // Execute tool
-            addLog('info', `tool_call_started: ${name} with args ${JSON.stringify(args)}`);
+            // addLog('info', `tool_call_started: ${name} with args ${JSON.stringify(args)}`);
             const startTime = Date.now();
 
             try {
@@ -1380,9 +1402,25 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
                 const duration = ((Date.now() - startTime) / 1000).toFixed(2);
 
                 if (normalized.ok) {
-                    addLog('info', `tool_call_succeeded: ${name} (${duration}s, kind=${normalized.kind})`);
+                    // Log the actual result returned by the tool
+                    // let resultPreview = '';
+                    if (normalized.kind === 'text') {
+                        // resultPreview = normalized.result.length > 200
+                        //     ? normalized.result.substring(0, 200) + '...'
+                        //     : normalized.result;
+                        addLog('info', `tool_call_succeeded: ${name} (${duration}s, kind=${normalized.kind})`);
+                        // addLog('info', `tool_result: "${resultPreview}"`);
+                    } else if (normalized.kind === 'json') {
+                        // resultPreview = JSON.stringify(normalized.result).substring(0, 200);
+                        addLog('info', `tool_call_succeeded: ${name} (${duration}s, kind=${normalized.kind})`);
+                        // addLog('info', `tool_result: ${resultPreview}`);
+                    } else if (normalized.kind === 'bytes') {
+                        addLog('info', `tool_call_succeeded: ${name} (${duration}s, kind=${normalized.kind}, bytes=${normalized.result.length})`);
+                        // addLog('info', `tool_result: [Base64 data, ${normalized.result.length} chars]`);
+                    }
                 } else {
                     addLog('error', `tool_call_failed: ${name} - ${normalized.error.message}`);
+                    // addLog('error', `tool_error: ${JSON.stringify(normalized.error)}`);
                     hasToolError = true;
                 }
 

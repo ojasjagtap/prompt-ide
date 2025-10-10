@@ -57,34 +57,48 @@ class OllamaAdapter extends ModelAdapter {
     }
 
     prepareRequest({ prompt, toolsCatalog, settings, sessionState }) {
-        const body = {
-            model: settings.model,
-            prompt: prompt,
-            stream: true,
-            options: {
-                temperature: settings.temperature,
-                num_predict: settings.maxTokens
-            }
-        };
+        // If tools are present, we MUST use chat format
+        const hasTools = toolsCatalog && toolsCatalog.length > 0;
 
-        // Add tools if available
-        if (toolsCatalog && toolsCatalog.length > 0) {
-            body.tools = toolsCatalog.map(tool => ({
-                type: 'function',
-                function: {
-                    name: tool.name,
-                    description: tool.description,
-                    parameters: tool.parametersSchema
+        if (hasTools) {
+            // Use chat format for tool calling
+            const messages = sessionState.messages && sessionState.messages.length > 0
+                ? sessionState.messages
+                : [{ role: 'user', content: prompt }];
+
+            const body = {
+                model: settings.model,
+                messages: messages,
+                stream: true,
+                options: {
+                    temperature: settings.temperature,
+                    num_predict: settings.maxTokens
+                },
+                tools: toolsCatalog.map(tool => ({
+                    type: 'function',
+                    function: {
+                        name: tool.name,
+                        description: tool.description,
+                        parameters: tool.parametersSchema
+                    }
+                }))
+            };
+
+            return { body, useChat: true };
+        } else {
+            // Use generate format for non-tool requests
+            const body = {
+                model: settings.model,
+                prompt: prompt,
+                stream: true,
+                options: {
+                    temperature: settings.temperature,
+                    num_predict: settings.maxTokens
                 }
-            }));
-        }
+            };
 
-        // Add messages for multi-turn conversations
-        if (sessionState && sessionState.messages) {
-            body.messages = sessionState.messages;
+            return { body, useChat: false };
         }
-
-        return body;
     }
 
     parseChunk(chunk, chunkState) {
@@ -96,17 +110,26 @@ class OllamaAdapter extends ModelAdapter {
             for (const line of lines) {
                 const data = JSON.parse(line);
 
-                // Text response
-                if (data.response) {
-                    result.textDelta = data.response;
-                }
+                // Chat format (with message)
+                if (data.message) {
+                    // Text response
+                    if (data.message.content) {
+                        result.textDelta = data.message.content;
+                    }
 
-                // Tool calls (Ollama format)
-                if (data.tool_calls && Array.isArray(data.tool_calls)) {
-                    result.toolCalls = data.tool_calls.map(tc => ({
-                        name: tc.function?.name || tc.name,
-                        arguments: tc.function?.arguments || tc.arguments || {}
-                    }));
+                    // Tool calls (Ollama chat format)
+                    if (data.message.tool_calls && Array.isArray(data.message.tool_calls)) {
+                        result.toolCalls = data.message.tool_calls.map(tc => ({
+                            name: tc.function?.name || tc.name,
+                            arguments: typeof tc.function?.arguments === 'string'
+                                ? JSON.parse(tc.function.arguments)
+                                : (tc.function?.arguments || tc.arguments || {})
+                        }));
+                    }
+                }
+                // Generate format (legacy, no tools)
+                else if (data.response) {
+                    result.textDelta = data.response;
                 }
             }
         } catch (error) {
@@ -122,21 +145,25 @@ class OllamaAdapter extends ModelAdapter {
             sessionState.messages = [];
         }
 
-        // Add tool call message
-        sessionState.messages.push({
-            role: 'assistant',
-            tool_calls: [{
-                function: {
-                    name: toolResult.name,
-                    arguments: toolResult.arguments
-                }
-            }]
-        });
+        // If we don't have an assistant message with tool_calls yet, add it
+        // (This should have been saved during the streaming, but we'll ensure it exists)
+        const lastMessage = sessionState.messages[sessionState.messages.length - 1];
+        if (!lastMessage || lastMessage.role !== 'assistant') {
+            sessionState.messages.push({
+                role: 'assistant',
+                content: '',
+                tool_calls: [{
+                    function: {
+                        name: toolResult.name,
+                        arguments: toolResult.arguments
+                    }
+                }]
+            });
+        }
 
-        // Add tool result message
+        // Add tool result message (Ollama format)
         sessionState.messages.push({
             role: 'tool',
-            name: toolResult.name,
             content: this.formatToolResultForModel(toolResult.normalized)
         });
 
@@ -205,7 +232,7 @@ Do not include any other text. If you don't need to use a tool, respond normally
             }
         };
 
-        return body;
+        return { body, useChat: false };
     }
 
     parseChunk(chunk, chunkState) {

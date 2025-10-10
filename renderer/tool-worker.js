@@ -64,11 +64,13 @@ function readStdin() {
  */
 async function executeToolCode(code, args) {
     try {
-        // Create a function from the code
-        const fn = new Function('args', code);
+        // Use AsyncFunction constructor to support async/await in tool code
+        // Pass require explicitly to give tools access to Node.js modules
+        const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+        const fn = new AsyncFunction('require', 'args', code);
 
-        // Execute it
-        const rawResult = await fn(args);
+        // Execute it with require and args
+        const rawResult = await fn(require, args);
 
         // Normalize the result
         return normalizeResult(rawResult);
