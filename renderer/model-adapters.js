@@ -1,0 +1,322 @@
+/**
+ * Model Adapter Interface
+ * Provides swappable adapters for different model providers
+ */
+
+/**
+ * Base Model Adapter Interface
+ */
+class ModelAdapter {
+    /**
+     * Check if this adapter supports tools
+     */
+    supportsTools() {
+        return false;
+    }
+
+    /**
+     * Prepare request payload
+     * @param {Object} options
+     * @param {string} options.prompt - User prompt
+     * @param {Array} options.toolsCatalog - Available tools
+     * @param {Object} options.settings - Model settings (temperature, maxTokens)
+     * @param {Object} options.sessionState - Session state for multi-turn
+     * @returns {Object} Request payload
+     */
+    prepareRequest({ prompt, toolsCatalog, settings, sessionState }) {
+        throw new Error('Not implemented');
+    }
+
+    /**
+     * Parse streaming chunk
+     * @param {string} chunk - Raw chunk from API
+     * @param {Object} chunkState - State to track partial chunks
+     * @returns {Object} { textDelta?, toolCalls? }
+     */
+    parseChunk(chunk, chunkState) {
+        throw new Error('Not implemented');
+    }
+
+    /**
+     * Continue generation with tool result
+     * @param {Object} sessionState - Current session state
+     * @param {Object} toolResult - Tool result { name, normalized }
+     * @returns {Object} Updated session state
+     */
+    continueWithToolResult(sessionState, toolResult) {
+        throw new Error('Not implemented');
+    }
+}
+
+/**
+ * Ollama Adapter with native tool support
+ */
+class OllamaAdapter extends ModelAdapter {
+    supportsTools() {
+        return true;
+    }
+
+    prepareRequest({ prompt, toolsCatalog, settings, sessionState }) {
+        const body = {
+            model: settings.model,
+            prompt: prompt,
+            stream: true,
+            options: {
+                temperature: settings.temperature,
+                num_predict: settings.maxTokens
+            }
+        };
+
+        // Add tools if available
+        if (toolsCatalog && toolsCatalog.length > 0) {
+            body.tools = toolsCatalog.map(tool => ({
+                type: 'function',
+                function: {
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: tool.parametersSchema
+                }
+            }));
+        }
+
+        // Add messages for multi-turn conversations
+        if (sessionState && sessionState.messages) {
+            body.messages = sessionState.messages;
+        }
+
+        return body;
+    }
+
+    parseChunk(chunk, chunkState) {
+        const result = { textDelta: null, toolCalls: null };
+
+        try {
+            const lines = chunk.split('\n').filter(l => l.trim());
+
+            for (const line of lines) {
+                const data = JSON.parse(line);
+
+                // Text response
+                if (data.response) {
+                    result.textDelta = data.response;
+                }
+
+                // Tool calls (Ollama format)
+                if (data.tool_calls && Array.isArray(data.tool_calls)) {
+                    result.toolCalls = data.tool_calls.map(tc => ({
+                        name: tc.function?.name || tc.name,
+                        arguments: tc.function?.arguments || tc.arguments || {}
+                    }));
+                }
+            }
+        } catch (error) {
+            // Ignore parse errors for partial chunks
+        }
+
+        return result;
+    }
+
+    continueWithToolResult(sessionState, toolResult) {
+        // Update session with tool result
+        if (!sessionState.messages) {
+            sessionState.messages = [];
+        }
+
+        // Add tool call message
+        sessionState.messages.push({
+            role: 'assistant',
+            tool_calls: [{
+                function: {
+                    name: toolResult.name,
+                    arguments: toolResult.arguments
+                }
+            }]
+        });
+
+        // Add tool result message
+        sessionState.messages.push({
+            role: 'tool',
+            name: toolResult.name,
+            content: this.formatToolResultForModel(toolResult.normalized)
+        });
+
+        return sessionState;
+    }
+
+    formatToolResultForModel(normalized) {
+        if (!normalized.ok) {
+            return JSON.stringify({
+                error: normalized.error
+            });
+        }
+
+        if (normalized.kind === 'text') {
+            return normalized.result;
+        } else if (normalized.kind === 'json') {
+            return JSON.stringify(normalized.result);
+        } else if (normalized.kind === 'bytes') {
+            return `[Base64 Data: ${normalized.result.length} chars]`;
+        }
+
+        return String(normalized.result);
+    }
+}
+
+/**
+ * Fallback Prompt Adapter
+ * Uses prompt injection to simulate tool calling
+ */
+class FallbackPromptAdapter extends ModelAdapter {
+    supportsTools() {
+        return true; // Simulated support
+    }
+
+    prepareRequest({ prompt, toolsCatalog, settings, sessionState }) {
+        let enhancedPrompt = prompt;
+
+        // Inject tool instructions if tools are available
+        if (toolsCatalog && toolsCatalog.length > 0) {
+            const toolsDescription = this.buildToolsDescription(toolsCatalog);
+
+            enhancedPrompt = `${prompt}
+
+You have access to the following tools:
+
+${toolsDescription}
+
+To use a tool, respond with ONLY a JSON object in this EXACT format:
+{
+  "tool_call": {
+    "name": "tool_name",
+    "arguments": { "param": "value" }
+  }
+}
+
+Do not include any other text. If you don't need to use a tool, respond normally.`;
+        }
+
+        const body = {
+            model: settings.model,
+            prompt: enhancedPrompt,
+            stream: true,
+            options: {
+                temperature: settings.temperature,
+                num_predict: settings.maxTokens
+            }
+        };
+
+        return body;
+    }
+
+    parseChunk(chunk, chunkState) {
+        const result = { textDelta: null, toolCalls: null };
+
+        try {
+            const lines = chunk.split('\n').filter(l => l.trim());
+
+            for (const line of lines) {
+                const data = JSON.parse(line);
+
+                if (data.response) {
+                    // Accumulate response to detect tool calls
+                    if (!chunkState.accumulated) {
+                        chunkState.accumulated = '';
+                    }
+                    chunkState.accumulated += data.response;
+
+                    // Try to parse as tool call
+                    const toolCall = this.extractToolCall(chunkState.accumulated);
+                    if (toolCall) {
+                        result.toolCalls = [toolCall];
+                        chunkState.foundToolCall = true;
+                    } else if (!chunkState.foundToolCall) {
+                        // Normal text response
+                        result.textDelta = data.response;
+                    }
+                }
+            }
+        } catch (error) {
+            // Ignore parse errors
+        }
+
+        return result;
+    }
+
+    extractToolCall(text) {
+        try {
+            // Try to extract JSON from the text
+            const jsonMatch = text.match(/\{[\s\S]*"tool_call"[\s\S]*\}/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                if (parsed.tool_call && parsed.tool_call.name) {
+                    return {
+                        name: parsed.tool_call.name,
+                        arguments: parsed.tool_call.arguments || {}
+                    };
+                }
+            }
+        } catch (error) {
+            // Not a valid tool call
+        }
+        return null;
+    }
+
+    continueWithToolResult(sessionState, toolResult) {
+        // Store tool result in session state
+        if (!sessionState.toolResults) {
+            sessionState.toolResults = [];
+        }
+
+        sessionState.toolResults.push({
+            name: toolResult.name,
+            result: this.formatToolResultForModel(toolResult.normalized)
+        });
+
+        return sessionState;
+    }
+
+    formatToolResultForModel(normalized) {
+        if (!normalized.ok) {
+            return `Error: ${normalized.error.message}`;
+        }
+
+        if (normalized.kind === 'text') {
+            return normalized.result;
+        } else if (normalized.kind === 'json') {
+            return JSON.stringify(normalized.result, null, 2);
+        } else if (normalized.kind === 'bytes') {
+            return `[Binary data: ${normalized.result.length} bytes]`;
+        }
+
+        return String(normalized.result);
+    }
+
+    buildToolsDescription(toolsCatalog) {
+        return toolsCatalog.map(tool => {
+            const params = Object.entries(tool.parametersSchema.properties || {})
+                .map(([name, schema]) => `  - ${name} (${schema.type}): ${schema.description || ''}`)
+                .join('\n');
+
+            return `### ${tool.name}
+${tool.description}
+Parameters:
+${params}`;
+        }).join('\n\n');
+    }
+}
+
+/**
+ * Get adapter for a given model
+ */
+function getAdapterForModel(modelName) {
+    // For now, use Ollama adapter for all models
+    // In the future, we can detect model capabilities and choose the right adapter
+    return new OllamaAdapter();
+}
+
+module.exports = {
+    ModelAdapter,
+    OllamaAdapter,
+    FallbackPromptAdapter,
+    getAdapterForModel
+};

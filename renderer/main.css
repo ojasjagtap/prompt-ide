@@ -638,3 +638,66 @@ body {
 ::-webkit-scrollbar-thumb:hover {
     background: #5a5a5a;
 }
+
+/* ============================================================================
+   TOOL NODE SPECIFIC STYLES
+   ============================================================================ */
+
+.node-badge {
+    font-size: 10px;
+    padding: 3px 8px;
+    background: #4a5a6a;
+    color: #8af;
+    border-radius: 3px;
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.node-description {
+    font-size: 11px;
+    color: #aaa;
+    margin-bottom: 6px;
+    line-height: 1.4;
+}
+
+.node-info {
+    font-size: 10px;
+    color: #888;
+    font-style: italic;
+}
+
+.validate-button {
+    width: 100%;
+    padding: 8px 12px;
+    background: #4a90e2;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.2s;
+}
+
+.validate-button:hover {
+    background: #357abd;
+}
+
+.validate-button:active {
+    background: #2a5a8a;
+}
+
+.inspector-hint {
+    font-size: 11px;
+    color: #777;
+    margin-top: 4px;
+    font-style: italic;
+}
+
+.code-editor {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    tab-size: 4;
+}

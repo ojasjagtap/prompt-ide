@@ -4,7 +4,7 @@
  */
 
 const { listModels } = require('../services/modelService');
-const { 
+const {
     createOptimizeNodeData,
     renderOptimizeNode,
     renderOptimizeInspector,
@@ -12,6 +12,18 @@ const {
     findOptimizeNodesToRun,
     executeOptimizeNode
 } = require('./optimize-script');
+const {
+    createToolNodeData,
+    renderToolNode,
+    renderToolInspector,
+    isValidToolConnection,
+    findRegisteredTools,
+    findConnectedModels,
+    buildToolsCatalog,
+    setGetAllToolNodes
+} = require('./tool-script');
+const { executeToolInWorker } = require('./tool-worker-launcher');
+const { getAdapterForModel } = require('./model-adapters');
 
 // ============================================================================
 // STATE MANAGEMENT
@@ -193,6 +205,8 @@ function createNode(type, worldX, worldY) {
         };
     } else if (type === 'optimize') {
         node.data = createOptimizeNodeData();
+    } else if (type === 'tool') {
+        node.data = createToolNodeData();
     }
 
     state.nodes.set(id, node);
@@ -296,6 +310,13 @@ function renderNode(id) {
                     </div>
                     <div class="pin-spacer"></div>
                 </div>
+                <div class="header-bottom">
+                    <div class="pin-container pin-input-container">
+                        <div class="pin pin-input" data-pin="tools"></div>
+                        <span class="pin-label">tools</span>
+                    </div>
+                    <div class="pin-spacer"></div>
+                </div>
             </div>
             <div class="node-body">
                 <div class="node-settings">
@@ -308,6 +329,9 @@ function renderNode(id) {
         `;
     } else if (node.type === 'optimize') {
         nodeEl.innerHTML = renderOptimizeNode(node);
+    } else if (node.type === 'tool') {
+        const connectedModels = findConnectedModels(node.id, state.edges, state.nodes);
+        nodeEl.innerHTML = renderToolNode(node, connectedModels);
     }
 
     // Add event listeners
@@ -368,12 +392,31 @@ function createEdge(sourceNodeId, sourcePin, targetNodeId, targetPin) {
     };
 
     state.edges.set(id, edge);
+
+    // Log tool registration
+    const sourceNode = state.nodes.get(sourceNodeId);
+    const targetNode = state.nodes.get(targetNodeId);
+    if (sourceNode?.type === 'tool' && targetNode?.type === 'model' && targetPin === 'tools') {
+        addLog('info', `tool_registered: ${sourceNode.data.name} → ${targetNode.data.title} (${sourceNodeId} → ${targetNodeId})`);
+    }
+
     renderEdges();
     updateRunButton();
     return id;
 }
 
 function deleteEdge(id) {
+    const edge = state.edges.get(id);
+
+    // Log tool unregistration
+    if (edge) {
+        const sourceNode = state.nodes.get(edge.sourceNodeId);
+        const targetNode = state.nodes.get(edge.targetNodeId);
+        if (sourceNode?.type === 'tool' && targetNode?.type === 'model' && edge.targetPin === 'tools') {
+            addLog('info', `tool_unregistered: ${sourceNode.data.name} → ${targetNode.data.title} (${edge.sourceNodeId} → ${edge.targetNodeId})`);
+        }
+    }
+
     state.edges.delete(id);
     if (state.selectedEdgeId === id) {
         state.selectedEdgeId = null;
@@ -406,6 +449,13 @@ function isValidConnection(sourceNodeId, sourcePin, targetNodeId, targetPin) {
         return true;
     }
 
+    // Check tool connections
+    if (isValidToolConnection(sourceNode, sourcePin, targetNode, targetPin)) {
+        return true;
+    }
+
+    // Reject invalid connections with log
+    // addLog('error', 'Incompatible connection attempted');
     return false;
 }
 
@@ -631,6 +681,10 @@ function updateInspector() {
         }
     } else if (node.type === 'optimize') {
         const inspector = renderOptimizeInspector(node, updateNodeDisplay);
+        inspectorContent.innerHTML = inspector.html;
+        inspector.setupListeners();
+    } else if (node.type === 'tool') {
+        const inspector = renderToolInspector(node, updateNodeDisplay, addLog);
         inspectorContent.innerHTML = inspector.html;
         inspector.setupListeners();
     }
@@ -1124,6 +1178,14 @@ async function runFlow() {
         setNodeStatus(modelNode.id, 'running');
         addLog('info', `node_started: ${modelNode.data.title} (${modelNode.id})`);
 
+        // Build tools catalog for this model
+        const registeredTools = findRegisteredTools(modelNode.id, state.edges, state.nodes);
+        const toolsCatalog = buildToolsCatalog(registeredTools);
+
+        if (toolsCatalog.length > 0) {
+            addLog('info', `Model has ${toolsCatalog.length} registered tool(s): ${toolsCatalog.map(t => t.name).join(', ')}`);
+        }
+
         const startTime = Date.now();
 
         try {
@@ -1142,7 +1204,8 @@ async function runFlow() {
                         }
                     }
                 },
-                state.runAbortController.signal
+                state.runAbortController.signal,
+                toolsCatalog.length > 0 ? toolsCatalog : null
             );
 
             const duration = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -1202,59 +1265,191 @@ function cancelRun() {
     }
 }
 
-async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk, signal) {
-    const url = 'http://localhost:11434/api/generate';
-    const body = {
-        model,
-        prompt,
-        stream: true,
-        options: {
-            temperature,
-            num_predict: maxTokens
-        }
-    };
+async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk, signal, toolsCatalog = null) {
+    const adapter = getAdapterForModel(model);
+    const settings = { model, temperature, maxTokens };
 
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal
-    });
+    // Session state for multi-turn conversations
+    const sessionState = { messages: [] };
 
-    if (!response.ok) {
-        let errorMessage = `Ollama request failed: ${response.status}`;
-        try {
-            const errorText = await response.text();
-            if (errorText) {
-                errorMessage += ` - ${errorText}`;
-            }
-        } catch (e) {
-            // Ignore parsing errors
-        }
-        throw new Error(errorMessage);
-    }
+    // Tool-calling loop
+    let iterationCount = 0;
+    const maxIterations = 10; // Prevent infinite loops
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
+    while (iterationCount < maxIterations) {
+        iterationCount++;
 
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        // Prepare request
+        const requestBody = adapter.prepareRequest({
+            prompt,
+            toolsCatalog,
+            settings,
+            sessionState
+        });
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(l => l.trim());
+        // Make API request
+        const url = 'http://localhost:11434/api/generate';
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+            signal
+        });
 
-        for (const line of lines) {
+        if (!response.ok) {
+            let errorMessage = `Ollama request failed: ${response.status}`;
             try {
-                const data = JSON.parse(line);
-                if (data.response) {
-                    onChunk(data.response);
+                const errorText = await response.text();
+                if (errorText) {
+                    errorMessage += ` - ${errorText}`;
                 }
             } catch (e) {
-                // Ignore parse errors
+                // Ignore parsing errors
+            }
+            throw new Error(errorMessage);
+        }
+
+        // Stream response
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        const chunkState = {};
+        let pendingToolCalls = [];
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value);
+
+            try {
+                const parsed = adapter.parseChunk(chunk, chunkState);
+
+                if (parsed.textDelta) {
+                    onChunk(parsed.textDelta);
+                }
+
+                if (parsed.toolCalls) {
+                    pendingToolCalls.push(...parsed.toolCalls);
+                }
+            } catch (error) {
+                addLog('error', `adapter_parse_error: ${error.message}`);
+            }
+        }
+
+        // If no tool calls, we're done
+        if (pendingToolCalls.length === 0) {
+            break;
+        }
+
+        // Execute tool calls
+        let hasToolError = false;
+        for (const toolCall of pendingToolCalls) {
+            const { name, arguments: args } = toolCall;
+
+            // Find the tool node
+            const toolNode = Array.from(state.nodes.values()).find(
+                n => n.type === 'tool' && n.data.name === name
+            );
+
+            if (!toolNode) {
+                addLog('error', `tool_call_failed: Tool "${name}" not found`);
+                hasToolError = true;
+                continue;
+            }
+
+            // Validate arguments against schema
+            const validationError = validateToolArguments(args, toolNode.data.parametersSchema);
+            if (validationError) {
+                addLog('error', `tool_validation_error: ${validationError}`);
+                hasToolError = true;
+                break;
+            }
+
+            // Execute tool
+            addLog('info', `tool_call_started: ${name} with args ${JSON.stringify(args)}`);
+            const startTime = Date.now();
+
+            try {
+                const normalized = await executeToolInWorker({
+                    code: toolNode.data.implementation.code,
+                    args,
+                    addLog,
+                    signal
+                });
+
+                const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+
+                if (normalized.ok) {
+                    addLog('info', `tool_call_succeeded: ${name} (${duration}s, kind=${normalized.kind})`);
+                } else {
+                    addLog('error', `tool_call_failed: ${name} - ${normalized.error.message}`);
+                    hasToolError = true;
+                }
+
+                // Continue with tool result
+                adapter.continueWithToolResult(sessionState, {
+                    name,
+                    arguments: args,
+                    normalized
+                });
+            } catch (error) {
+                const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+                addLog('error', `tool_call_failed: ${name} - ${error.message} (${duration}s)`);
+                hasToolError = true;
+                break;
+            }
+        }
+
+        // If tool execution failed, stop
+        if (hasToolError) {
+            break;
+        }
+
+        // Continue to next iteration with tool results
+    }
+
+    if (iterationCount >= maxIterations) {
+        addLog('warn', 'Tool-calling loop exceeded maximum iterations');
+    }
+}
+
+/**
+ * Validate tool arguments against schema
+ */
+function validateToolArguments(args, schema) {
+    if (!schema || !schema.properties) {
+        return 'Invalid schema';
+    }
+
+    // Check required fields
+    if (schema.required && Array.isArray(schema.required)) {
+        for (const field of schema.required) {
+            if (!(field in args)) {
+                return `Missing required field: ${field}`;
             }
         }
     }
+
+    // Check types
+    for (const [key, value] of Object.entries(args)) {
+        const propSchema = schema.properties[key];
+        if (!propSchema) continue;
+
+        const actualType = typeof value;
+        const expectedType = propSchema.type;
+
+        if (expectedType === 'string' && actualType !== 'string') {
+            return `Field ${key} must be a string`;
+        }
+        if (expectedType === 'number' && actualType !== 'number') {
+            return `Field ${key} must be a number`;
+        }
+        if (expectedType === 'boolean' && actualType !== 'boolean') {
+            return `Field ${key} must be a boolean`;
+        }
+    }
+
+    return null;
 }
 
 // ============================================================================
@@ -1280,6 +1475,11 @@ async function loadModels() {
 // ============================================================================
 
 document.addEventListener('DOMContentLoaded', async function() {
+    // Set up tool node helpers
+    setGetAllToolNodes(() => {
+        return Array.from(state.nodes.values()).filter(n => n.type === 'tool');
+    });
+
     // Load models
     await loadModels();
 
