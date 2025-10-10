@@ -195,6 +195,48 @@ return myTool(args);</div>
             document.getElementById('validateToolButton').addEventListener('click', () => {
                 validateTool(node, addLog, getAllToolNodes);
             });
+
+            // Setup tooltip positioning
+            const infoIcons = document.querySelectorAll('.info-icon');
+            infoIcons.forEach(icon => {
+                icon.addEventListener('mouseenter', (e) => {
+                    const tooltip = icon.querySelector('.info-tooltip');
+                    if (!tooltip) return;
+
+                    const iconRect = icon.getBoundingClientRect();
+                    const tooltipWidth = 280;
+                    const tooltipHeight = tooltip.offsetHeight || 300; // Estimate if not rendered
+                    const padding = 20;
+
+                    // Calculate initial position (to the right of icon)
+                    let left = iconRect.right + 8;
+                    let top = iconRect.top - 8;
+
+                    // Check if tooltip would go off the right edge
+                    if (left + tooltipWidth > window.innerWidth - padding) {
+                        // Position to the left of icon instead
+                        left = iconRect.left - tooltipWidth - 8;
+                    }
+
+                    // Ensure tooltip doesn't go off the left edge
+                    if (left < padding) {
+                        left = padding;
+                    }
+
+                    // Check if tooltip would go off the bottom edge
+                    if (top + tooltipHeight > window.innerHeight - padding) {
+                        top = window.innerHeight - tooltipHeight - padding;
+                    }
+
+                    // Ensure tooltip doesn't go off the top edge
+                    if (top < padding) {
+                        top = padding;
+                    }
+
+                    tooltip.style.left = `${left}px`;
+                    tooltip.style.top = `${top}px`;
+                });
+            });
         }
     };
 }
