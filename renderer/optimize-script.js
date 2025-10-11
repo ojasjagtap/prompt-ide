@@ -37,7 +37,7 @@ function renderOptimizeNode(node) {
             </div>
         </div>
         <div class="node-body">
-            <div class="node-output-viewer">${node.data.optimizedSystemPrompt || 'Run to generate optimized system prompt'}</div>
+            <div class="node-output-viewer">${node.data.optimizedSystemPrompt || ''}</div>
         </div>
     `;
 }
@@ -52,11 +52,11 @@ function renderOptimizeInspector(node, updateNodeDisplay) {
             <input type="text" id="inspectorTitle" class="inspector-input" value="${node.data.title}">
         </div>
         <div class="inspector-section">
-            <label>Feedback (How to improve?)</label>
+            <label>Feedback</label>
             <textarea id="inspectorFeedback" class="inspector-textarea" rows="6">${node.data.feedback}</textarea>
         </div>
         <div class="inspector-section">
-            <label>Optimized System Prompt (Read-only)</label>
+            <label>Optimized System Prompt</label>
             <textarea id="inspectorOptimizedSystemPrompt" class="inspector-textarea" rows="10" readonly>${node.data.optimizedSystemPrompt}</textarea>
         </div>
     `;

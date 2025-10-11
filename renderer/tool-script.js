@@ -66,7 +66,6 @@ function renderToolNode(node, connectedModels) {
         </div>
         <div class="node-body">
             <div class="node-description">${node.data.description || 'No description'}</div>
-            <div class="node-info">Registered to: ${connectedCount} Model${connectedCount !== 1 ? 's' : ''}</div>
         </div>
     `;
 }
