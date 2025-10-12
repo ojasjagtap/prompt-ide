@@ -416,13 +416,13 @@ function deleteEdge(id) {
     const edge = state.edges.get(id);
 
     // Log tool unregistration
-    if (edge) {
-        const sourceNode = state.nodes.get(edge.sourceNodeId);
-        const targetNode = state.nodes.get(edge.targetNodeId);
-        if (sourceNode?.type === 'tool' && targetNode?.type === 'model' && edge.targetPin === 'tools') {
-            addLog('info', `tool_unregistered: ${sourceNode.data.name} → ${targetNode.data.title} (${edge.sourceNodeId} → ${edge.targetNodeId})`);
-        }
-    }
+    // if (edge) {
+    //     const sourceNode = state.nodes.get(edge.sourceNodeId);
+    //     const targetNode = state.nodes.get(edge.targetNodeId);
+    //     if (sourceNode?.type === 'tool' && targetNode?.type === 'model' && edge.targetPin === 'tools') {
+    //         addLog('info', `tool_unregistered: ${sourceNode.data.name} → ${targetNode.data.title} (${edge.sourceNodeId} → ${edge.targetNodeId})`);
+    //     }
+    // }
 
     state.edges.delete(id);
     if (state.selectedEdgeId === id) {
