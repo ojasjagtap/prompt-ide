@@ -1069,7 +1069,14 @@ function onCanvasDrop(e) {
     const y = e.clientY - rect.top;
 
     const world = screenToWorld(x, y);
-    createNode(nodeType, world.x, world.y);
+    const nodeId = createNode(nodeType, world.x, world.y);
+
+    // Select the newly created node
+    state.selectedNodeId = nodeId;
+    state.selectedEdgeId = null;
+    renderEdges();
+    state.nodes.forEach((_, id) => updateNodeDisplay(id));
+    updateInspector();
 }
 
 function onCanvasDragOver(e) {
