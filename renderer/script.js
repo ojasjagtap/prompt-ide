@@ -1837,9 +1837,18 @@ function setupLogsResize() {
         const deltaY = startY - e.clientY; // Note: reversed because we're dragging top edge
         const newHeight = startHeight + deltaY;
 
+        // Calculate max height based on inspector header bottom edge
+        const inspectorHeader = document.querySelector('.inspector-container .panel-header');
+        const logsHeader = logsPanel.querySelector('.logs-header');
+        const logsPanelRect = logsPanel.getBoundingClientRect();
+        const inspectorHeaderRect = inspectorHeader.getBoundingClientRect();
+        const logsHeaderHeight = logsHeader.offsetHeight;
+
+        // Max height for logsBody: distance from inspector header bottom to logs panel bottom, minus logs header height
+        const maxHeight = logsPanelRect.bottom - inspectorHeaderRect.bottom - logsHeaderHeight;
+
         // Clamp between min and max height
         const minHeight = 0;
-        const maxHeight = 600;
         const clampedHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
 
         logsBody.style.height = `${clampedHeight}px`;
