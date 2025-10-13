@@ -290,6 +290,7 @@ function renderNode(id) {
                 </div>
             </div>
             <div class="node-body">
+                <div class="node-description">${node.type === 'system' ? 'Provides system context and instructions' : 'Provides the user input prompt'}</div>
                 <div class="node-output-viewer">${node.data.promptText || ''}</div>
             </div>
         `;
@@ -327,6 +328,7 @@ function renderNode(id) {
                 </div>
             </div>
             <div class="node-body">
+                <div class="node-description">Runs the LLM with provided inputs</div>
                 <div class="node-settings">
                     <div class="setting-line">Model: ${node.data.model || 'None'}</div>
                     <div class="setting-line">Temperature: ${node.data.temperature}</div>

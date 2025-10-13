@@ -6,7 +6,7 @@
 /**
  * Default file-reader implementation
  */
-const DEFAULT_TOOL_CODE = `// Read UTF-8 text from a local file path
+const DEFAULT_TOOL_CODE = `// Reads UTF-8 text from a local file path
 const fs = require('fs');
 
 function readTextFile(args) {
@@ -28,7 +28,7 @@ return readTextFile(args);
 function createToolNodeData() {
     return {
         name: 'read_text_file',
-        description: 'Read UTF-8 text from a local file path.',
+        description: 'Reads UTF-8 text from a local file path',
         parametersSchema: {
             type: 'object',
             properties: {

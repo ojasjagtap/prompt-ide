@@ -37,6 +37,7 @@ function renderOptimizeNode(node) {
             </div>
         </div>
         <div class="node-body">
+            <div class="node-description">Optimizes prompts based on feedback</div>
             <div class="node-output-viewer">${node.data.optimizedSystemPrompt || ''}</div>
         </div>
     `;
