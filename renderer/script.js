@@ -290,7 +290,7 @@ function renderNode(id) {
                 </div>
             </div>
             <div class="node-body">
-                <div class="node-description">${node.type === 'system' ? 'Provides system context and instructions' : 'Provides the user input prompt'}</div>
+                <div class="node-description">${node.type === 'system' ? 'System context and instructions for the model' : 'User input that will be sent to the model'}</div>
                 <div class="node-output-viewer">${node.data.promptText || ''}</div>
             </div>
         `;
@@ -328,11 +328,20 @@ function renderNode(id) {
                 </div>
             </div>
             <div class="node-body">
-                <div class="node-description">Runs the LLM with provided inputs</div>
+                <div class="node-description">Generates text using the selected language model</div>
                 <div class="node-settings">
-                    <div class="setting-line">Model: ${node.data.model || 'None'}</div>
-                    <div class="setting-line">Temperature: ${node.data.temperature}</div>
-                    <div class="setting-line">Max Tokens: ${node.data.maxTokens}</div>
+                    <div class="setting-row">
+                        <span class="setting-label">Model</span>
+                        <span class="setting-value">${node.data.model || 'None'}</span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">Temperature</span>
+                        <span class="setting-value">${node.data.temperature}</span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">Max Tokens</span>
+                        <span class="setting-value">${node.data.maxTokens}</span>
+                    </div>
                 </div>
                 <div class="node-output-viewer">${node.data.output}</div>
             </div>

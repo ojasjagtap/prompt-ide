@@ -28,7 +28,7 @@ return readTextFile(args);
 function createToolNodeData() {
     return {
         name: 'read_text_file',
-        description: 'Reads UTF-8 text from a local file path',
+        description: 'Reads and returns text content from a local file path',
         parametersSchema: {
             type: 'object',
             properties: {

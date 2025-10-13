@@ -372,6 +372,38 @@ body {
 
 .node-settings {
     margin-bottom: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.setting-label {
+    font-size: 11px;
+    color: #888;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.setting-value {
+    font-size: 12px;
+    color: #ddd;
+    font-weight: 600;
+    text-align: right;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .setting-line {
@@ -689,10 +721,14 @@ body {
 }
 
 .node-description {
-    font-size: 11px;
-    color: #aaa;
-    margin-bottom: 6px;
-    line-height: 1.4;
+    font-size: 12px;
+    color: #bbb;
+    margin-bottom: 8px;
+    line-height: 1.5;
+    padding: 6px 8px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 4px;
+    border-left: 2px solid #4a4a4a;
 }
 
 .node-info {
