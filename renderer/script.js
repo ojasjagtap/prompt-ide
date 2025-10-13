@@ -71,7 +71,8 @@ const state = {
     // Logs
     logs: [],
     logsFilter: 'all',
-    logsManuallyResized: false,
+    logsCollapsed: false,
+    logsExpandedHeight: 200, // Store the expanded height
 
     // Models
     availableModels: []
@@ -150,28 +151,22 @@ function updateLogsUI() {
         return true;
     });
 
-    logsBody.innerHTML = filteredLogs.map(log => {
-        const levelClass = `log-level-${log.level}`;
-        return `
-            <div class="log-entry ${levelClass}">
-                <span class="log-timestamp">${log.timestamp}</span>
-                <span class="log-level">${log.level.toUpperCase()}</span>
-                <span class="log-message">${log.message}</span>
-            </div>
-        `;
-    }).join('');
-
-    // Auto-expand only if not manually resized
-    if (!state.logsManuallyResized && filteredLogs.length > 0) {
-        const lineHeight = 24; // Approximate height of one log entry
-        const headerHeight = 0;
-        const padding = 16;
-        const maxAutoHeight = 250;
-        const calculatedHeight = Math.min(filteredLogs.length * lineHeight + padding, maxAutoHeight);
-        logsBody.style.height = `${calculatedHeight}px`;
+    if (filteredLogs.length === 0) {
+        logsBody.innerHTML = '<div class="logs-empty">No logs to display</div>';
+    } else {
+        logsBody.innerHTML = filteredLogs.map(log => {
+            const levelClass = `log-level-${log.level}`;
+            return `
+                <div class="log-entry ${levelClass}">
+                    <span class="log-timestamp">${log.timestamp}</span>
+                    <span class="log-level">${log.level}</span>
+                    <span class="log-message">${log.message}</span>
+                </div>
+            `;
+        }).join('');
     }
 
-    // Always scroll to bottom
+    // Always scroll to bottom when new logs arrive
     logsBody.scrollTop = logsBody.scrollHeight;
 }
 
@@ -1756,6 +1751,29 @@ document.addEventListener('DOMContentLoaded', async function() {
         updateLogsUI();
     });
 
+    // Collapse/expand logs button
+    document.getElementById('collapseLogsButton').addEventListener('click', () => {
+        const logsPanel = document.getElementById('logsPanel');
+        const collapseButton = document.getElementById('collapseLogsButton');
+        state.logsCollapsed = !state.logsCollapsed;
+
+        if (state.logsCollapsed) {
+            // Store current height before collapsing
+            state.logsExpandedHeight = logsPanel.offsetHeight;
+            // Explicitly set height to collapsed state
+            logsPanel.style.height = '36px';
+            logsPanel.classList.add('collapsed');
+            collapseButton.textContent = '+';
+            collapseButton.title = 'Expand';
+        } else {
+            // Restore to previous height
+            logsPanel.style.height = `${state.logsExpandedHeight}px`;
+            logsPanel.classList.remove('collapsed');
+            collapseButton.textContent = '−';
+            collapseButton.title = 'Collapse';
+        }
+    });
+
     // Keyboard
     document.addEventListener('keydown', onKeyDown);
 
@@ -1831,12 +1849,14 @@ function setupInspectorResize() {
 
 function setupLogsResize() {
     const logsPanel = document.getElementById('logsPanel');
-    const logsBody = document.getElementById('logsBody');
     let isResizing = false;
     let startY = 0;
     let startHeight = 0;
 
     logsPanel.addEventListener('mousedown', (e) => {
+        // Don't allow resize when collapsed
+        if (state.logsCollapsed) return;
+
         const rect = logsPanel.getBoundingClientRect();
         const edgeThreshold = 4;
 
@@ -1844,7 +1864,7 @@ function setupLogsResize() {
         if (e.clientY >= rect.top && e.clientY <= rect.top + edgeThreshold) {
             isResizing = true;
             startY = e.clientY;
-            startHeight = logsBody.offsetHeight;
+            startHeight = logsPanel.offsetHeight;
             logsPanel.classList.add('resizing');
             document.body.style.cursor = 'ns-resize';
             e.preventDefault();
@@ -1860,19 +1880,17 @@ function setupLogsResize() {
 
         // Calculate max height based on inspector header bottom edge
         const inspectorHeader = document.querySelector('.inspector-container .panel-header');
-        const logsHeader = logsPanel.querySelector('.logs-header');
         const logsPanelRect = logsPanel.getBoundingClientRect();
         const inspectorHeaderRect = inspectorHeader.getBoundingClientRect();
-        const logsHeaderHeight = logsHeader.offsetHeight;
 
-        // Max height for logsBody: distance from inspector header bottom to logs panel bottom, minus logs header height
-        const maxHeight = logsPanelRect.bottom - inspectorHeaderRect.bottom - logsHeaderHeight;
+        // Max height for logs panel: distance from inspector header bottom to logs panel bottom
+        const maxHeight = logsPanelRect.bottom - inspectorHeaderRect.bottom;
 
-        // Clamp between min and max height
-        const minHeight = 0;
+        // Clamp between min and max height (min is header height: 36px)
+        const minHeight = 36;
         const clampedHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
 
-        logsBody.style.height = `${clampedHeight}px`;
+        logsPanel.style.height = `${clampedHeight}px`;
     });
 
     document.addEventListener('mouseup', () => {
@@ -1880,8 +1898,8 @@ function setupLogsResize() {
             isResizing = false;
             logsPanel.classList.remove('resizing');
             document.body.style.cursor = '';
-            // Mark as manually resized so auto-expansion stops
-            state.logsManuallyResized = true;
+            // Save the resized height so collapse/expand remembers it
+            state.logsExpandedHeight = logsPanel.offsetHeight;
         }
     });
 }
