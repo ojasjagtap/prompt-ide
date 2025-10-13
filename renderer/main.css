@@ -19,6 +19,14 @@ body {
     flex-direction: column;
 }
 
+body.dragging,
+body.panning {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
 /* ============================================================================
    TOP ACTION BAR
    ============================================================================ */

@@ -914,6 +914,7 @@ function onCanvasMouseDown(e) {
             state.panStartX = e.clientX;
             state.panStartY = e.clientY;
             container.style.cursor = 'grabbing';
+            document.body.classList.add('panning');
         }
     }
 }
@@ -989,6 +990,7 @@ function onCanvasMouseUp(e) {
     state.isPanning = false;
     state.isDraggingNode = false;
     state.draggedNodeId = null;
+    document.body.classList.remove('dragging', 'panning');
 }
 
 function onCanvasWheel(e) {
@@ -1019,6 +1021,7 @@ function onNodeMouseDown(e) {
     state.draggedNodeId = nodeId;
     state.dragOffsetX = world.x - node.x;
     state.dragOffsetY = world.y - node.y;
+    document.body.classList.add('dragging');
 }
 
 function onNodeClick(e) {
