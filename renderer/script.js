@@ -1773,6 +1773,10 @@ document.addEventListener('DOMContentLoaded', async function() {
             logsPanel.classList.remove('collapsed');
             collapseButton.textContent = '−';
             collapseButton.title = 'Collapse';
+
+            // Scroll to bottom when expanding
+            const logsBody = document.getElementById('logsBody');
+            logsBody.scrollTop = logsBody.scrollHeight;
         }
     });
 
