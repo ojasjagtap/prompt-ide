@@ -1381,7 +1381,6 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
         } else if (provider === 'openai') {
             url = 'https://api.openai.com/v1/chat/completions';
             const apiKey = providerRegistry.getApiKey('openai');
-            const organization = providerRegistry.getOrganization('openai');
 
             if (!apiKey) {
                 throw new Error('OpenAI API key not configured');
@@ -1391,10 +1390,6 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiKey}`
             };
-
-            if (organization) {
-                headers['OpenAI-Organization'] = organization;
-            }
         } else {
             throw new Error(`Unsupported provider: ${provider}`);
         }
@@ -1612,10 +1607,8 @@ function openSettingsModal() {
 
     // Load current OpenAI settings
     const apiKey = providerRegistry.getApiKey('openai');
-    const organization = providerRegistry.getOrganization('openai');
 
     document.getElementById('openaiApiKey').value = apiKey || '';
-    document.getElementById('openaiOrganization').value = organization || '';
 
     // Update status
     updateOpenAIStatus();
@@ -1641,7 +1634,6 @@ function updateOpenAIStatus() {
 
 async function saveOpenAISettings() {
     const apiKey = document.getElementById('openaiApiKey').value.trim();
-    const organization = document.getElementById('openaiOrganization').value.trim();
 
     if (!apiKey) {
         alert('Please enter an API key');
@@ -1649,7 +1641,7 @@ async function saveOpenAISettings() {
     }
 
     try {
-        providerRegistry.setApiKey('openai', apiKey, organization || null);
+        providerRegistry.setApiKey('openai', apiKey);
         updateOpenAIStatus();
 
         // Try to fetch models to validate the key
@@ -1674,7 +1666,6 @@ function removeOpenAISettings() {
     if (confirm('Are you sure you want to remove the OpenAI API key?')) {
         providerRegistry.removeApiKey('openai');
         document.getElementById('openaiApiKey').value = '';
-        document.getElementById('openaiOrganization').value = '';
         updateOpenAIStatus();
         addLog('info', 'OpenAI API key removed');
     }

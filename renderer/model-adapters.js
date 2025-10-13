@@ -336,10 +336,9 @@ ${params}`;
  * OpenAI Adapter with native function calling support
  */
 class OpenAIAdapter extends ModelAdapter {
-    constructor({ apiKey, organization = null }) {
+    constructor({ apiKey }) {
         super();
         this.apiKey = apiKey;
-        this.organization = organization;
     }
 
     supportsTools() {

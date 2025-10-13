@@ -65,19 +65,14 @@ class ProviderRegistry {
     /**
      * Set API key for a provider
      */
-    setApiKey(providerId, apiKey, organization = null) {
+    setApiKey(providerId, apiKey) {
         const storageKey = `provider_${providerId}_apikey`;
-        const orgKey = `provider_${providerId}_organization`;
 
         if (typeof localStorage !== 'undefined') {
             if (apiKey) {
                 localStorage.setItem(storageKey, apiKey);
-                if (organization) {
-                    localStorage.setItem(orgKey, organization);
-                }
             } else {
                 localStorage.removeItem(storageKey);
-                localStorage.removeItem(orgKey);
             }
         }
 
@@ -92,17 +87,6 @@ class ProviderRegistry {
         const storageKey = `provider_${providerId}_apikey`;
         if (typeof localStorage !== 'undefined') {
             return localStorage.getItem(storageKey);
-        }
-        return null;
-    }
-
-    /**
-     * Get organization for a provider
-     */
-    getOrganization(providerId) {
-        const orgKey = `provider_${providerId}_organization`;
-        if (typeof localStorage !== 'undefined') {
-            return localStorage.getItem(orgKey);
         }
         return null;
     }
@@ -208,8 +192,7 @@ class ProviderRegistry {
         } else if (providerId === 'openai') {
             const { OpenAIAdapter } = require('../renderer/model-adapters');
             adapter = new OpenAIAdapter({
-                apiKey: this.getApiKey('openai'),
-                organization: this.getOrganization('openai')
+                apiKey: this.getApiKey('openai')
             });
         }
 
