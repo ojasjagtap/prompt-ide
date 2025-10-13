@@ -333,6 +333,167 @@ ${params}`;
 }
 
 /**
+ * OpenAI Adapter with native function calling support
+ */
+class OpenAIAdapter extends ModelAdapter {
+    constructor({ apiKey, organization = null }) {
+        super();
+        this.apiKey = apiKey;
+        this.organization = organization;
+    }
+
+    supportsTools() {
+        return true;
+    }
+
+    prepareRequest({ prompt, toolsCatalog, settings, sessionState }) {
+        const hasTools = toolsCatalog && toolsCatalog.length > 0;
+
+        // Build messages array
+        const messages = sessionState.messages && sessionState.messages.length > 0
+            ? sessionState.messages
+            : [{ role: 'user', content: prompt }];
+
+        const body = {
+            model: settings.model,
+            messages: messages,
+            temperature: settings.temperature,
+            max_tokens: settings.maxTokens,
+            stream: true
+        };
+
+        // Add tools if present
+        if (hasTools) {
+            body.tools = toolsCatalog.map(tool => ({
+                type: 'function',
+                function: {
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: tool.parametersSchema
+                }
+            }));
+        }
+
+        return { body, useChat: true };
+    }
+
+    parseChunk(chunk, chunkState) {
+        const result = { textDelta: null, toolCalls: null };
+
+        try {
+            const lines = chunk.split('\n').filter(l => l.trim() && l.trim() !== 'data: [DONE]');
+
+            for (const line of lines) {
+                // OpenAI streams with "data: " prefix
+                const dataMatch = line.match(/^data: (.+)$/);
+                if (!dataMatch) continue;
+
+                const data = JSON.parse(dataMatch[1]);
+                const choice = data.choices?.[0];
+                if (!choice) continue;
+
+                const delta = choice.delta;
+
+                // Text content
+                if (delta.content) {
+                    result.textDelta = delta.content;
+                }
+
+                // Tool calls (OpenAI streams tool calls incrementally)
+                if (delta.tool_calls) {
+                    if (!chunkState.toolCallsBuilder) {
+                        chunkState.toolCallsBuilder = {};
+                    }
+
+                    for (const tc of delta.tool_calls) {
+                        const index = tc.index;
+                        if (!chunkState.toolCallsBuilder[index]) {
+                            chunkState.toolCallsBuilder[index] = {
+                                name: '',
+                                arguments: ''
+                            };
+                        }
+
+                        const builder = chunkState.toolCallsBuilder[index];
+
+                        if (tc.function?.name) {
+                            builder.name = tc.function.name;
+                        }
+
+                        if (tc.function?.arguments) {
+                            builder.arguments += tc.function.arguments;
+                        }
+                    }
+                }
+
+                // Check for finish reason
+                if (choice.finish_reason === 'tool_calls' && chunkState.toolCallsBuilder) {
+                    // Finalize tool calls
+                    result.toolCalls = Object.values(chunkState.toolCallsBuilder).map(builder => ({
+                        name: builder.name,
+                        arguments: JSON.parse(builder.arguments)
+                    }));
+                }
+            }
+        } catch (error) {
+            // Ignore parse errors for partial chunks
+        }
+
+        return result;
+    }
+
+    continueWithToolResult(sessionState, toolResult) {
+        if (!sessionState.messages) {
+            sessionState.messages = [];
+        }
+
+        // Add assistant message with tool call
+        const lastMessage = sessionState.messages[sessionState.messages.length - 1];
+        if (!lastMessage || lastMessage.role !== 'assistant') {
+            sessionState.messages.push({
+                role: 'assistant',
+                content: null,
+                tool_calls: [{
+                    id: `call_${Date.now()}`,
+                    type: 'function',
+                    function: {
+                        name: toolResult.name,
+                        arguments: JSON.stringify(toolResult.arguments)
+                    }
+                }]
+            });
+        }
+
+        // Add tool result message
+        sessionState.messages.push({
+            role: 'tool',
+            tool_call_id: `call_${Date.now()}`,
+            content: this.formatToolResultForModel(toolResult.normalized)
+        });
+
+        return sessionState;
+    }
+
+    formatToolResultForModel(normalized) {
+        if (!normalized.ok) {
+            return JSON.stringify({
+                error: normalized.error.message || 'Unknown error'
+            });
+        }
+
+        if (normalized.kind === 'text') {
+            return normalized.result;
+        } else if (normalized.kind === 'json') {
+            return JSON.stringify(normalized.result);
+        } else if (normalized.kind === 'bytes') {
+            return `[Base64 Data: ${normalized.result.length} chars]`;
+        }
+
+        return String(normalized.result);
+    }
+}
+
+/**
  * Get adapter for a given model
  */
 function getAdapterForModel(modelName) {
@@ -344,6 +505,7 @@ function getAdapterForModel(modelName) {
 module.exports = {
     ModelAdapter,
     OllamaAdapter,
+    OpenAIAdapter,
     FallbackPromptAdapter,
     getAdapterForModel
 };

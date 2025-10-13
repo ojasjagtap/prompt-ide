@@ -14,6 +14,7 @@
             <h1 class="app-title">Prompt Goat</h1>
         </div>
         <div class="top-bar-right">
+            <button id="settingsButton" class="action-button">Settings</button>
             <button id="runButton" class="action-button" disabled>Run</button>
             <button id="cancelButton" class="action-button" disabled>Cancel</button>
             <div id="statusChip" class="status-chip status-idle">Idle</div>
@@ -95,6 +96,50 @@
                 </div>
                 <div id="logsBody" class="logs-body">
                     <!-- Log entries will be added here dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button id="closeSettingsButton" class="close-button">&times;</button>
+            </div>
+            <div class="modal-body">
+                <h3>Providers</h3>
+
+                <!-- OpenAI Provider -->
+                <div class="provider-section">
+                    <div class="provider-header">
+                        <h4>OpenAI</h4>
+                        <span id="openaiStatus" class="provider-status">Not configured</span>
+                    </div>
+                    <div class="provider-form">
+                        <div class="form-group">
+                            <label for="openaiApiKey">API Key</label>
+                            <input type="password" id="openaiApiKey" class="form-input" placeholder="sk-...">
+                        </div>
+                        <div class="form-group">
+                            <label for="openaiOrganization">Organization (Optional)</label>
+                            <input type="text" id="openaiOrganization" class="form-input" placeholder="org-...">
+                        </div>
+                        <div class="form-actions">
+                            <button id="saveOpenaiButton" class="primary-button">Save</button>
+                            <button id="removeOpenaiButton" class="secondary-button">Remove</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ollama Provider (Read-only, always available) -->
+                <div class="provider-section">
+                    <div class="provider-header">
+                        <h4>Ollama</h4>
+                        <span class="provider-status provider-status-active">Active</span>
+                    </div>
+                    <p class="provider-note">Local Ollama instance at http://localhost:11434</p>
                 </div>
             </div>
         </div>

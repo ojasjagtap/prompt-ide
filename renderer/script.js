@@ -205,6 +205,7 @@ function createNode(type, worldX, worldY) {
     } else if (type === 'model') {
         node.data = {
             title: 'Model',
+            provider: 'ollama', // default to ollama
             model: state.availableModels[0] || '',
             temperature: 0.7,
             maxTokens: 512,
@@ -456,8 +457,23 @@ function isValidConnection(sourceNodeId, sourcePin, targetNodeId, targetPin) {
         return true;
     }
 
-    // Check tool connections
+    // Check tool connections (with tool-call compatibility gating)
     if (isValidToolConnection(sourceNode, sourcePin, targetNode, targetPin)) {
+        // If connecting a Tool to a Model's tools pin, check if model supports tools
+        if (sourceNode.type === 'tool' && targetNode.type === 'model' && targetPin === 'tools') {
+            const provider = targetNode.data.provider || 'ollama';
+            const modelId = targetNode.data.model;
+
+            if (!modelId) {
+                // Model not selected yet, allow connection (will be validated at runtime)
+                return true;
+            }
+
+            if (!providerRegistry.supportsTools(provider, modelId)) {
+                addLog('error', 'Incompatible connection attempted: model does not support tool calls');
+                return false;
+            }
+        }
         return true;
     }
 
@@ -629,9 +645,34 @@ function updateInspector() {
             updateNodeDisplay(node.id);
         });
     } else if (node.type === 'model') {
-        const modelOptions = state.availableModels.map(m =>
-            `<option value="${m}" ${m === node.data.model ? 'selected' : ''}>${m}</option>`
-        ).join('');
+        // Ensure node has provider field (for backward compatibility)
+        if (!node.data.provider) {
+            node.data.provider = 'ollama';
+        }
+
+        // Get available providers
+        const providers = providerRegistry.getProviders();
+        const providerOptions = providers
+            .filter(p => !p.requiresApiKey || providerRegistry.isProviderConfigured(p.id))
+            .map(p => `<option value="${p.id}" ${p.id === node.data.provider ? 'selected' : ''}>${p.name}</option>`)
+            .join('');
+
+        // Get models for current provider
+        let modelOptions = '';
+        let modelsLoading = false;
+
+        // Function to load models for provider
+        const loadProviderModels = async (providerId) => {
+            try {
+                const models = await providerRegistry.listModels(providerId);
+                return models.map(m =>
+                    `<option value="${m.id}" ${m.id === node.data.model ? 'selected' : ''}>${m.name}</option>`
+                ).join('');
+            } catch (error) {
+                console.error(`Failed to load models for ${providerId}:`, error);
+                return '<option value="">Error loading models</option>';
+            }
+        };
 
         inspectorContent.innerHTML = `
             <div class="inspector-section">
@@ -639,11 +680,16 @@ function updateInspector() {
                 <input type="text" id="inspectorTitle" class="inspector-input" value="${node.data.title}">
             </div>
             <div class="inspector-section">
+                <label>Provider</label>
+                <select id="inspectorProvider" class="inspector-input">
+                    ${providerOptions}
+                </select>
+            </div>
+            <div class="inspector-section">
                 <label>Model</label>
                 <select id="inspectorModel" class="inspector-input">
-                    ${modelOptions}
+                    <option value="">Loading...</option>
                 </select>
-                <button id="retryModelsButton" class="retry-button" style="display: ${state.availableModels.length === 0 ? 'block' : 'none'};">Retry</button>
             </div>
             <div class="inspector-section">
                 <label>Temperature</label>
@@ -659,8 +705,34 @@ function updateInspector() {
             </div>
         `;
 
+        // Load initial models
+        (async () => {
+            const modelSelect = document.getElementById('inspectorModel');
+            const options = await loadProviderModels(node.data.provider);
+            modelSelect.innerHTML = options || '<option value="">No models available</option>';
+        })();
+
         document.getElementById('inspectorTitle').addEventListener('input', (e) => {
             node.data.title = e.target.value;
+            updateNodeDisplay(node.id);
+        });
+
+        document.getElementById('inspectorProvider').addEventListener('change', async (e) => {
+            const newProvider = e.target.value;
+            node.data.provider = newProvider;
+            node.data.model = ''; // Reset model when provider changes
+
+            // Load models for new provider
+            const modelSelect = document.getElementById('inspectorModel');
+            modelSelect.innerHTML = '<option value="">Loading...</option>';
+            const options = await loadProviderModels(newProvider);
+            modelSelect.innerHTML = options || '<option value="">No models available</option>';
+
+            // Select first model if available
+            if (modelSelect.options.length > 0 && modelSelect.options[0].value) {
+                node.data.model = modelSelect.options[0].value;
+            }
+
             updateNodeDisplay(node.id);
         });
 
@@ -678,14 +750,6 @@ function updateInspector() {
             node.data.maxTokens = parseInt(e.target.value);
             updateNodeDisplay(node.id);
         });
-
-        const retryButton = document.getElementById('retryModelsButton');
-        if (retryButton) {
-            retryButton.addEventListener('click', async () => {
-                await loadModels();
-                updateInspector();
-            });
-        }
     } else if (node.type === 'optimize') {
         const inspector = renderOptimizeInspector(node, updateNodeDisplay);
         inspectorContent.innerHTML = inspector.html;
@@ -1217,7 +1281,8 @@ async function runFlow() {
                     }
                 },
                 state.runAbortController.signal,
-                toolsCatalog.length > 0 ? toolsCatalog : null
+                toolsCatalog.length > 0 ? toolsCatalog : null,
+                modelNode.data.provider || 'ollama'
             );
 
             const duration = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -1277,8 +1342,14 @@ function cancelRun() {
     }
 }
 
-async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk, signal, toolsCatalog = null) {
-    const adapter = getAdapterForModel(model);
+async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk, signal, toolsCatalog = null, provider = 'ollama') {
+    // Get adapter from provider registry
+    const adapter = providerRegistry.getAdapter(provider);
+
+    if (!adapter) {
+        throw new Error(`Provider "${provider}" not found or not configured`);
+    }
+
     const settings = { model, temperature, maxTokens };
 
     // Session state for multi-turn conversations
@@ -1299,32 +1370,44 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
             sessionState
         });
 
-        // Log messages being sent for debugging (iteration > 1 means we're in tool result flow)
-        // if (iterationCount > 1 && preparedRequest.body.messages) {
-        //     addLog('info', `Sending ${preparedRequest.body.messages.length} message(s) to model:`);
-        //     preparedRequest.body.messages.forEach((msg, idx) => {
-        //         const preview = msg.content ? msg.content.substring(0, 100) : '[no content]';
-        //         const toolInfo = msg.tool_calls ? ` [${msg.tool_calls.length} tool_call(s)]` : '';
-        //         addLog('info', `  [${idx}] ${msg.role}: ${preview}${toolInfo}`);
-        //     });
-        // }
+        // Build request based on provider
+        let url, headers;
 
-        // Use chat endpoint for tools, generate endpoint otherwise
-        const url = preparedRequest.useChat
-            ? 'http://localhost:11434/api/chat'
-            : 'http://localhost:11434/api/generate';
+        if (provider === 'ollama') {
+            url = preparedRequest.useChat
+                ? 'http://localhost:11434/api/chat'
+                : 'http://localhost:11434/api/generate';
+            headers = { 'Content-Type': 'application/json' };
+        } else if (provider === 'openai') {
+            url = 'https://api.openai.com/v1/chat/completions';
+            const apiKey = providerRegistry.getApiKey('openai');
+            const organization = providerRegistry.getOrganization('openai');
 
-        // addLog('info', `Using ${preparedRequest.useChat ? 'chat' : 'generate'} endpoint`);
+            if (!apiKey) {
+                throw new Error('OpenAI API key not configured');
+            }
+
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            };
+
+            if (organization) {
+                headers['OpenAI-Organization'] = organization;
+            }
+        } else {
+            throw new Error(`Unsupported provider: ${provider}`);
+        }
 
         const response = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify(preparedRequest.body),
             signal
         });
 
         if (!response.ok) {
-            let errorMessage = `Ollama request failed: ${response.status}`;
+            let errorMessage = `${provider} request failed: ${response.status}`;
             try {
                 const errorText = await response.text();
                 if (errorText) {
@@ -1333,6 +1416,7 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
             } catch (e) {
                 // Ignore parsing errors
             }
+            addLog('error', `provider_auth_error: ${provider}`);
             throw new Error(errorMessage);
         }
 
@@ -1517,6 +1601,86 @@ async function loadModels() {
 }
 
 // ============================================================================
+// SETTINGS MODAL
+// ============================================================================
+
+const { providerRegistry } = require('../services/providerRegistry');
+
+function openSettingsModal() {
+    const modal = document.getElementById('settingsModal');
+    modal.style.display = 'flex';
+
+    // Load current OpenAI settings
+    const apiKey = providerRegistry.getApiKey('openai');
+    const organization = providerRegistry.getOrganization('openai');
+
+    document.getElementById('openaiApiKey').value = apiKey || '';
+    document.getElementById('openaiOrganization').value = organization || '';
+
+    // Update status
+    updateOpenAIStatus();
+}
+
+function closeSettingsModal() {
+    const modal = document.getElementById('settingsModal');
+    modal.style.display = 'none';
+}
+
+function updateOpenAIStatus() {
+    const statusEl = document.getElementById('openaiStatus');
+    const isConfigured = providerRegistry.isProviderConfigured('openai');
+
+    if (isConfigured) {
+        statusEl.textContent = 'Configured';
+        statusEl.className = 'provider-status provider-status-active';
+    } else {
+        statusEl.textContent = 'Not configured';
+        statusEl.className = 'provider-status';
+    }
+}
+
+async function saveOpenAISettings() {
+    const apiKey = document.getElementById('openaiApiKey').value.trim();
+    const organization = document.getElementById('openaiOrganization').value.trim();
+
+    if (!apiKey) {
+        alert('Please enter an API key');
+        return;
+    }
+
+    try {
+        providerRegistry.setApiKey('openai', apiKey, organization || null);
+        updateOpenAIStatus();
+
+        // Try to fetch models to validate the key
+        addLog('info', 'Validating OpenAI API key...');
+        const models = await providerRegistry.listModels('openai');
+        addLog('info', `OpenAI configured successfully with ${models.length} models available`);
+
+        // Refresh models in state if a model node is using OpenAI
+        for (const node of state.nodes.values()) {
+            if (node.type === 'model' && node.data.provider === 'openai') {
+                updateInspector();
+                break;
+            }
+        }
+    } catch (error) {
+        addLog('error', `provider_auth_error: openai - ${error.message}`);
+        alert(`Failed to validate OpenAI API key: ${error.message}`);
+    }
+}
+
+function removeOpenAISettings() {
+    if (confirm('Are you sure you want to remove the OpenAI API key?')) {
+        providerRegistry.removeApiKey('openai');
+        document.getElementById('openaiApiKey').value = '';
+        document.getElementById('openaiOrganization').value = '';
+        updateOpenAIStatus();
+        addLog('info', 'OpenAI API key removed');
+    }
+}
+
+// ============================================================================
 // INITIALIZATION
 // ============================================================================
 
@@ -1560,6 +1724,19 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Run button
     document.getElementById('runButton').addEventListener('click', runFlow);
     document.getElementById('cancelButton').addEventListener('click', cancelRun);
+
+    // Settings button
+    document.getElementById('settingsButton').addEventListener('click', openSettingsModal);
+    document.getElementById('closeSettingsButton').addEventListener('click', closeSettingsModal);
+    document.getElementById('saveOpenaiButton').addEventListener('click', saveOpenAISettings);
+    document.getElementById('removeOpenaiButton').addEventListener('click', removeOpenAISettings);
+
+    // Close modal when clicking outside
+    document.getElementById('settingsModal').addEventListener('click', (e) => {
+        if (e.target.id === 'settingsModal') {
+            closeSettingsModal();
+        }
+    });
 
     // Logs filter
     document.getElementById('logsFilter').addEventListener('change', (e) => {
