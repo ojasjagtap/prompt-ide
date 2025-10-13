@@ -1465,11 +1465,19 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
             break;
         }
 
-        // Log detected tool calls
+        // Log detected tool calls with more detail
         addLog('info', `Model requested ${pendingToolCalls.length} tool call(s): ${pendingToolCalls.map(tc => tc.name).join(', ')}`);
+
+        // Warn if there are duplicate tool calls
+        // const toolNames = pendingToolCalls.map(tc => tc.name);
+        // const duplicates = toolNames.filter((name, index) => toolNames.indexOf(name) !== index);
+        // if (duplicates.length > 0) {
+        //     addLog('warn', `Duplicate tool calls detected: ${duplicates.join(', ')} - model may be confused`);
+        // }
 
         // Execute tool calls
         let hasToolError = false;
+
         for (const toolCall of pendingToolCalls) {
             const { name, arguments: args } = toolCall;
 
@@ -1481,13 +1489,14 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
             if (!toolNode) {
                 addLog('error', `tool_call_failed: Tool "${name}" not found`);
                 hasToolError = true;
-                continue;
+                break;
             }
 
             // Validate arguments against schema
             const validationError = validateToolArguments(args, toolNode.data.parametersSchema);
             if (validationError) {
-                addLog('error', `tool_validation_error: ${validationError}`);
+                addLog('error', `tool_call_failed: ${name} - ${validationError}`);
+                // addLog('error', `Invalid arguments provided: ${JSON.stringify(args)}`);
                 hasToolError = true;
                 break;
             }
@@ -1525,8 +1534,8 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
                     }
                 } else {
                     addLog('error', `tool_call_failed: ${name} - ${normalized.error.message}`);
-                    // addLog('error', `tool_error: ${JSON.stringify(normalized.error)}`);
                     hasToolError = true;
+                    break;
                 }
 
                 // Continue with tool result
@@ -1543,9 +1552,10 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
             }
         }
 
-        // If tool execution failed, stop
+        // If tool execution failed, stop and mark model as error
         if (hasToolError) {
-            break;
+            addLog('error', 'Tool execution failed - stopping run');
+            throw new Error('Tool execution failed');
         }
 
         // Continue to next iteration with tool results

@@ -62,13 +62,14 @@ class OllamaAdapter extends ModelAdapter {
 
         if (hasTools) {
             // Use chat format for tool calling
-            const messages = sessionState.messages && sessionState.messages.length > 0
-                ? sessionState.messages
-                : [{ role: 'user', content: prompt }];
+            // Initialize messages if not present
+            if (!sessionState.messages || sessionState.messages.length === 0) {
+                sessionState.messages = [{ role: 'user', content: prompt }];
+            }
 
             const body = {
                 model: settings.model,
-                messages: messages,
+                messages: sessionState.messages,
                 stream: true,
                 options: {
                     temperature: settings.temperature,
@@ -349,13 +350,14 @@ class OpenAIAdapter extends ModelAdapter {
         const hasTools = toolsCatalog && toolsCatalog.length > 0;
 
         // Build messages array
-        const messages = sessionState.messages && sessionState.messages.length > 0
-            ? sessionState.messages
-            : [{ role: 'user', content: prompt }];
+        // Initialize messages if not present
+        if (!sessionState.messages || sessionState.messages.length === 0) {
+            sessionState.messages = [{ role: 'user', content: prompt }];
+        }
 
         const body = {
             model: settings.model,
-            messages: messages,
+            messages: sessionState.messages,
             temperature: settings.temperature,
             max_tokens: settings.maxTokens,
             stream: true

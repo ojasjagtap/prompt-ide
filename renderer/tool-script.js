@@ -276,15 +276,38 @@ function validateTool(node, addLog, getAllToolNodesFn) {
         if (!schema || typeof schema !== 'object') {
             issues.push('Parameters schema must be a valid object');
         } else {
-            // Check that path is required and is a string
-            if (!schema.properties || !schema.properties.path) {
-                issues.push('Schema must include "path" property');
-            } else if (schema.properties.path.type !== 'string') {
-                issues.push('Schema property "path" must be type "string"');
+            // Check schema has required structure
+            if (schema.type !== 'object') {
+                issues.push('Schema "type" must be "object"');
             }
 
-            if (!schema.required || !Array.isArray(schema.required) || !schema.required.includes('path')) {
-                issues.push('Schema must have "path" in required array');
+            if (!schema.properties || typeof schema.properties !== 'object') {
+                issues.push('Schema must have a "properties" object');
+            } else {
+                // Validate each property has a type
+                for (const [propName, propDef] of Object.entries(schema.properties)) {
+                    if (!propDef.type) {
+                        issues.push(`Property "${propName}" must have a "type" field`);
+                    } else {
+                        const validTypes = ['string', 'number', 'boolean', 'object', 'array'];
+                        if (!validTypes.includes(propDef.type)) {
+                            issues.push(`Property "${propName}" has invalid type "${propDef.type}"`);
+                        }
+                    }
+                }
+
+                // Validate required array references existing properties
+                if (schema.required) {
+                    if (!Array.isArray(schema.required)) {
+                        issues.push('Schema "required" must be an array');
+                    } else {
+                        for (const requiredProp of schema.required) {
+                            if (!schema.properties[requiredProp]) {
+                                issues.push(`Required property "${requiredProp}" not defined in properties`);
+                            }
+                        }
+                    }
+                }
             }
         }
     } catch (err) {
