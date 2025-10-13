@@ -5,13 +5,13 @@
 
 const http = require('http');
 
-const content = `This is a test file for tool calling verification.
+const content = `This is a test server for tool calling verification.
 It contains exactly THREE important pieces of information:
 1. The secret code is: BANANA-42
 2. The magic number is: 7834
 3. The color of the day is: PURPLE
 
-If you can read this, the file reading tool is working correctly!`;
+If you can read this, the server reading tool is working correctly!`;
 
 const server = http.createServer((req, res) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
