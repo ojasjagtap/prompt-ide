@@ -27,17 +27,17 @@ function renderOptimizeNode(node) {
             <div class="header-bottom">
                 <div class="pin-container pin-input-container">
                     <div class="pin pin-input" data-pin="input"></div>
-                    <span class="pin-label">input</span>
+                    <span class="pin-label">result</span>
                 </div>
                 <div class="pin-spacer"></div>
                 <div class="pin-container pin-output-container">
-                    <span class="pin-label">prompt</span>
+                    <span class="pin-label">optimized</span>
                     <div class="pin pin-output" data-pin="prompt"></div>
                 </div>
             </div>
         </div>
         <div class="node-body">
-            <div class="node-description">Generates improved prompts based on feedback</div>
+            <div class="node-description">Generates an improved prompt based on feedback</div>
             <div class="node-output-viewer">${node.data.optimizedSystemPrompt || ''}</div>
         </div>
     `;
@@ -57,7 +57,7 @@ function renderOptimizeInspector(node, updateNodeDisplay) {
             <textarea id="inspectorFeedback" class="inspector-textarea" rows="6">${node.data.feedback}</textarea>
         </div>
         <div class="inspector-section">
-            <label>Optimized System Prompt</label>
+            <label>Optimized Prompt</label>
             <textarea id="inspectorOptimizedSystemPrompt" class="inspector-textarea" rows="10" readonly>${node.data.optimizedSystemPrompt}</textarea>
         </div>
     `;

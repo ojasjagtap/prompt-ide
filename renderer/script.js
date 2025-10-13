@@ -270,6 +270,7 @@ function renderNode(id) {
 
     // Content
     if (node.type === 'system' || node.type === 'user') {
+        const pinLabel = node.type === 'system' ? 'instructions' : 'message';
         nodeEl.innerHTML = `
             <div class="node-header">
                 <div class="header-top">
@@ -279,7 +280,7 @@ function renderNode(id) {
                 <div class="header-bottom">
                     <div class="pin-spacer"></div>
                     <div class="pin-container pin-output-container">
-                        <span class="pin-label">text</span>
+                        <span class="pin-label">${pinLabel}</span>
                         <div class="pin pin-output" data-pin="text"></div>
                     </div>
                 </div>
@@ -303,7 +304,7 @@ function renderNode(id) {
                     </div>
                     <div class="pin-spacer"></div>
                     <div class="pin-container pin-output-container">
-                        <span class="pin-label">output</span>
+                        <span class="pin-label">response</span>
                         <div class="pin pin-output" data-pin="output"></div>
                     </div>
                 </div>
@@ -630,13 +631,14 @@ function updateInspector() {
     }
 
     if (node.type === 'system' || node.type === 'user') {
+        const fieldLabel = node.type === 'system' ? 'System Instructions' : 'User Message';
         inspectorContent.innerHTML = `
             <div class="inspector-section">
                 <label>Title</label>
                 <input type="text" id="inspectorTitle" class="inspector-input" value="${node.data.title}">
             </div>
             <div class="inspector-section">
-                <label>Prompt Text</label>
+                <label>${fieldLabel}</label>
                 <textarea id="inspectorPromptText" class="inspector-textarea" rows="10">${node.data.promptText}</textarea>
             </div>
         `;
