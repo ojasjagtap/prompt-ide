@@ -4,7 +4,7 @@
  */
 
 const { listModels } = require('../services/modelService');
-const { 
+const {
     createOptimizeNodeData,
     renderOptimizeNode,
     renderOptimizeInspector,
@@ -12,6 +12,18 @@ const {
     findOptimizeNodesToRun,
     executeOptimizeNode
 } = require('./optimize-script');
+const {
+    createToolNodeData,
+    renderToolNode,
+    renderToolInspector,
+    isValidToolConnection,
+    findRegisteredTools,
+    findConnectedModels,
+    buildToolsCatalog,
+    setGetAllToolNodes
+} = require('./tool-script');
+const { executeToolInWorker } = require('./tool-worker-launcher');
+const { getAdapterForModel } = require('./model-adapters');
 
 // ============================================================================
 // STATE MANAGEMENT
@@ -58,8 +70,9 @@ const state = {
 
     // Logs
     logs: [],
-    logsCollapsed: false,
     logsFilter: 'all',
+    logsCollapsed: false,
+    logsExpandedHeight: 200, // Store the expanded height
 
     // Models
     availableModels: []
@@ -138,21 +151,22 @@ function updateLogsUI() {
         return true;
     });
 
-    if (!state.logsCollapsed) {
-        logsBody.style.display = 'block';
+    if (filteredLogs.length === 0) {
+        logsBody.innerHTML = '<div class="logs-empty">No logs to display</div>';
+    } else {
+        logsBody.innerHTML = filteredLogs.map(log => {
+            const levelClass = `log-level-${log.level}`;
+            return `
+                <div class="log-entry ${levelClass}">
+                    <span class="log-timestamp">${log.timestamp}</span>
+                    <span class="log-level">${log.level}</span>
+                    <span class="log-message">${log.message}</span>
+                </div>
+            `;
+        }).join('');
     }
 
-    logsBody.innerHTML = filteredLogs.map(log => {
-        const levelClass = `log-level-${log.level}`;
-        return `
-            <div class="log-entry ${levelClass}">
-                <span class="log-timestamp">${log.timestamp}</span>
-                <span class="log-level">${log.level.toUpperCase()}</span>
-                <span class="log-message">${log.message}</span>
-            </div>
-        `;
-    }).join('');
-
+    // Always scroll to bottom when new logs arrive
     logsBody.scrollTop = logsBody.scrollHeight;
 }
 
@@ -173,15 +187,20 @@ function createNode(type, worldX, worldY) {
         data: {}
     };
 
-    if (type === 'prompt') {
+    if (type === 'system') {
         node.data = {
-            title: 'Prompt',
-            systemPrompt: '',
-            userInput: ''
+            title: 'System',
+            promptText: ''
+        };
+    } else if (type === 'user') {
+        node.data = {
+            title: 'User',
+            promptText: ''
         };
     } else if (type === 'model') {
         node.data = {
             title: 'Model',
+            provider: 'ollama', // default to ollama
             model: state.availableModels[0] || '',
             temperature: 0.7,
             maxTokens: 512,
@@ -189,6 +208,8 @@ function createNode(type, worldX, worldY) {
         };
     } else if (type === 'optimize') {
         node.data = createOptimizeNodeData();
+    } else if (type === 'tool') {
+        node.data = createToolNodeData();
     }
 
     state.nodes.set(id, node);
@@ -248,7 +269,8 @@ function renderNode(id) {
     nodeEl.dataset.status = node.status;
 
     // Content
-    if (node.type === 'prompt') {
+    if (node.type === 'system' || node.type === 'user') {
+        const pinLabel = node.type === 'system' ? 'instructions' : 'message';
         nodeEl.innerHTML = `
             <div class="node-header">
                 <div class="header-top">
@@ -258,16 +280,14 @@ function renderNode(id) {
                 <div class="header-bottom">
                     <div class="pin-spacer"></div>
                     <div class="pin-container pin-output-container">
-                        <span class="pin-label">text</span>
+                        <span class="pin-label">${pinLabel}</span>
                         <div class="pin pin-output" data-pin="text"></div>
                     </div>
                 </div>
             </div>
             <div class="node-body">
-                <div class="node-settings">
-                    <div class="setting-line">System: ${node.data.systemPrompt || 'None'}</div>
-                    <div class="setting-line">User: ${node.data.userInput || 'None'}</div>
-                </div>
+                <div class="node-description">${node.type === 'system' ? 'System context and instructions for the model' : 'User input that will be sent to the model'}</div>
+                <div class="node-output-viewer">${node.data.promptText || ''}</div>
             </div>
         `;
     } else if (node.type === 'model') {
@@ -279,27 +299,54 @@ function renderNode(id) {
                 </div>
                 <div class="header-bottom">
                     <div class="pin-container pin-input-container">
-                        <div class="pin pin-input" data-pin="prompt"></div>
-                        <span class="pin-label">prompt</span>
+                        <div class="pin pin-input" data-pin="system"></div>
+                        <span class="pin-label">system</span>
                     </div>
                     <div class="pin-spacer"></div>
                     <div class="pin-container pin-output-container">
-                        <span class="pin-label">output</span>
+                        <span class="pin-label">response</span>
                         <div class="pin pin-output" data-pin="output"></div>
                     </div>
                 </div>
+                <div class="header-bottom">
+                    <div class="pin-container pin-input-container">
+                        <div class="pin pin-input" data-pin="user"></div>
+                        <span class="pin-label">user</span>
+                    </div>
+                    <div class="pin-spacer"></div>
+                </div>
+                <div class="header-bottom">
+                    <div class="pin-container pin-input-container">
+                        <div class="pin pin-input" data-pin="tools"></div>
+                        <span class="pin-label">tools</span>
+                    </div>
+                    <div class="pin-spacer"></div>
+                </div>
             </div>
             <div class="node-body">
+                <div class="node-description">Generates text using the selected language model</div>
                 <div class="node-settings">
-                    <div class="setting-line">Model: ${node.data.model || 'None'}</div>
-                    <div class="setting-line">Temperature: ${node.data.temperature}</div>
-                    <div class="setting-line">Max Tokens: ${node.data.maxTokens}</div>
+                    <div class="setting-row">
+                        <span class="setting-label">Model</span>
+                        <span class="setting-value">${node.data.model || 'None'}</span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">Temperature</span>
+                        <span class="setting-value">${node.data.temperature}</span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">Max Tokens</span>
+                        <span class="setting-value">${node.data.maxTokens}</span>
+                    </div>
                 </div>
                 <div class="node-output-viewer">${node.data.output}</div>
             </div>
         `;
     } else if (node.type === 'optimize') {
         nodeEl.innerHTML = renderOptimizeNode(node);
+    } else if (node.type === 'tool') {
+        const connectedModels = findConnectedModels(node.id, state.edges, state.nodes);
+        nodeEl.innerHTML = renderToolNode(node, connectedModels);
     }
 
     // Add event listeners
@@ -360,12 +407,31 @@ function createEdge(sourceNodeId, sourcePin, targetNodeId, targetPin) {
     };
 
     state.edges.set(id, edge);
+
+    // Log tool registration
+    const sourceNode = state.nodes.get(sourceNodeId);
+    const targetNode = state.nodes.get(targetNodeId);
+    // if (sourceNode?.type === 'tool' && targetNode?.type === 'model' && targetPin === 'tools') {
+    //     addLog('info', `tool_registered: ${sourceNode.data.name} → ${targetNode.data.title} (${sourceNodeId} → ${targetNodeId})`);
+    // }
+
     renderEdges();
     updateRunButton();
     return id;
 }
 
 function deleteEdge(id) {
+    const edge = state.edges.get(id);
+
+    // Log tool unregistration
+    // if (edge) {
+    //     const sourceNode = state.nodes.get(edge.sourceNodeId);
+    //     const targetNode = state.nodes.get(edge.targetNodeId);
+    //     if (sourceNode?.type === 'tool' && targetNode?.type === 'model' && edge.targetPin === 'tools') {
+    //         addLog('info', `tool_unregistered: ${sourceNode.data.name} → ${targetNode.data.title} (${edge.sourceNodeId} → ${edge.targetNodeId})`);
+    //     }
+    // }
+
     state.edges.delete(id);
     if (state.selectedEdgeId === id) {
         state.selectedEdgeId = null;
@@ -381,9 +447,15 @@ function isValidConnection(sourceNodeId, sourcePin, targetNodeId, targetPin) {
     if (!sourceNode || !targetNode) return false;
     if (sourceNode.id === targetNode.id) return false;
 
-    // Only allow: Prompt.text (output) -> Model.prompt (input)
-    if (sourceNode.type === 'prompt' && sourcePin === 'text' &&
-        targetNode.type === 'model' && targetPin === 'prompt') {
+    // Allow: User.text (output) -> Model.user (input)
+    if (sourceNode.type === 'user' && sourcePin === 'text' &&
+        targetNode.type === 'model' && targetPin === 'user') {
+        return true;
+    }
+
+    // Allow: System.text (output) -> Model.system (input)
+    if (sourceNode.type === 'system' && sourcePin === 'text' &&
+        targetNode.type === 'model' && targetPin === 'system') {
         return true;
     }
 
@@ -392,6 +464,28 @@ function isValidConnection(sourceNodeId, sourcePin, targetNodeId, targetPin) {
         return true;
     }
 
+    // Check tool connections (with tool-call compatibility gating)
+    if (isValidToolConnection(sourceNode, sourcePin, targetNode, targetPin)) {
+        // If connecting a Tool to a Model's tools pin, check if model supports tools
+        if (sourceNode.type === 'tool' && targetNode.type === 'model' && targetPin === 'tools') {
+            const provider = targetNode.data.provider || 'ollama';
+            const modelId = targetNode.data.model;
+
+            if (!modelId) {
+                // Model not selected yet, allow connection (will be validated at runtime)
+                return true;
+            }
+
+            if (!providerRegistry.supportsTools(provider, modelId)) {
+                addLog('error', 'Incompatible connection attempted: model does not support tool calls');
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Reject invalid connections with log
+    // addLog('error', 'Incompatible connection attempted');
     return false;
 }
 
@@ -536,19 +630,16 @@ function updateInspector() {
         return;
     }
 
-    if (node.type === 'prompt') {
+    if (node.type === 'system' || node.type === 'user') {
+        const fieldLabel = node.type === 'system' ? 'System Instructions' : 'User Message';
         inspectorContent.innerHTML = `
             <div class="inspector-section">
                 <label>Title</label>
                 <input type="text" id="inspectorTitle" class="inspector-input" value="${node.data.title}">
             </div>
             <div class="inspector-section">
-                <label>System Prompt</label>
-                <textarea id="inspectorSystemPrompt" class="inspector-textarea" rows="6">${node.data.systemPrompt}</textarea>
-            </div>
-            <div class="inspector-section">
-                <label>User Input</label>
-                <textarea id="inspectorUserInput" class="inspector-textarea" rows="4">${node.data.userInput}</textarea>
+                <label>${fieldLabel}</label>
+                <textarea id="inspectorPromptText" class="inspector-textarea" rows="10">${node.data.promptText}</textarea>
             </div>
         `;
 
@@ -557,19 +648,39 @@ function updateInspector() {
             updateNodeDisplay(node.id);
         });
 
-        document.getElementById('inspectorSystemPrompt').addEventListener('input', (e) => {
-            node.data.systemPrompt = e.target.value;
-            updateNodeDisplay(node.id);
-        });
-
-        document.getElementById('inspectorUserInput').addEventListener('input', (e) => {
-            node.data.userInput = e.target.value;
+        document.getElementById('inspectorPromptText').addEventListener('input', (e) => {
+            node.data.promptText = e.target.value;
             updateNodeDisplay(node.id);
         });
     } else if (node.type === 'model') {
-        const modelOptions = state.availableModels.map(m =>
-            `<option value="${m}" ${m === node.data.model ? 'selected' : ''}>${m}</option>`
-        ).join('');
+        // Ensure node has provider field (for backward compatibility)
+        if (!node.data.provider) {
+            node.data.provider = 'ollama';
+        }
+
+        // Get available providers
+        const providers = providerRegistry.getProviders();
+        const providerOptions = providers
+            .filter(p => !p.requiresApiKey || providerRegistry.isProviderConfigured(p.id))
+            .map(p => `<option value="${p.id}" ${p.id === node.data.provider ? 'selected' : ''}>${p.name}</option>`)
+            .join('');
+
+        // Get models for current provider
+        let modelOptions = '';
+        let modelsLoading = false;
+
+        // Function to load models for provider
+        const loadProviderModels = async (providerId) => {
+            try {
+                const models = await providerRegistry.listModels(providerId);
+                return models.map(m =>
+                    `<option value="${m.id}" ${m.id === node.data.model ? 'selected' : ''}>${m.name}</option>`
+                ).join('');
+            } catch (error) {
+                console.error(`Failed to load models for ${providerId}:`, error);
+                return '<option value="">Error loading models</option>';
+            }
+        };
 
         inspectorContent.innerHTML = `
             <div class="inspector-section">
@@ -577,11 +688,16 @@ function updateInspector() {
                 <input type="text" id="inspectorTitle" class="inspector-input" value="${node.data.title}">
             </div>
             <div class="inspector-section">
+                <label>Provider</label>
+                <select id="inspectorProvider" class="inspector-input">
+                    ${providerOptions}
+                </select>
+            </div>
+            <div class="inspector-section">
                 <label>Model</label>
                 <select id="inspectorModel" class="inspector-input">
-                    ${modelOptions}
+                    <option value="">Loading...</option>
                 </select>
-                <button id="retryModelsButton" class="retry-button" style="display: ${state.availableModels.length === 0 ? 'block' : 'none'};">Retry</button>
             </div>
             <div class="inspector-section">
                 <label>Temperature</label>
@@ -592,13 +708,39 @@ function updateInspector() {
                 <input type="number" id="inspectorMaxTokens" class="inspector-input" value="${node.data.maxTokens}" min="1">
             </div>
             <div class="inspector-section">
-                <label>Output (Read-only)</label>
+                <label>Output</label>
                 <textarea id="inspectorOutput" class="inspector-textarea" rows="10" readonly>${node.data.output}</textarea>
             </div>
         `;
 
+        // Load initial models
+        (async () => {
+            const modelSelect = document.getElementById('inspectorModel');
+            const options = await loadProviderModels(node.data.provider);
+            modelSelect.innerHTML = options || '<option value="">No models available</option>';
+        })();
+
         document.getElementById('inspectorTitle').addEventListener('input', (e) => {
             node.data.title = e.target.value;
+            updateNodeDisplay(node.id);
+        });
+
+        document.getElementById('inspectorProvider').addEventListener('change', async (e) => {
+            const newProvider = e.target.value;
+            node.data.provider = newProvider;
+            node.data.model = ''; // Reset model when provider changes
+
+            // Load models for new provider
+            const modelSelect = document.getElementById('inspectorModel');
+            modelSelect.innerHTML = '<option value="">Loading...</option>';
+            const options = await loadProviderModels(newProvider);
+            modelSelect.innerHTML = options || '<option value="">No models available</option>';
+
+            // Select first model if available
+            if (modelSelect.options.length > 0 && modelSelect.options[0].value) {
+                node.data.model = modelSelect.options[0].value;
+            }
+
             updateNodeDisplay(node.id);
         });
 
@@ -616,16 +758,12 @@ function updateInspector() {
             node.data.maxTokens = parseInt(e.target.value);
             updateNodeDisplay(node.id);
         });
-
-        const retryButton = document.getElementById('retryModelsButton');
-        if (retryButton) {
-            retryButton.addEventListener('click', async () => {
-                await loadModels();
-                updateInspector();
-            });
-        }
     } else if (node.type === 'optimize') {
         const inspector = renderOptimizeInspector(node, updateNodeDisplay);
+        inspectorContent.innerHTML = inspector.html;
+        inspector.setupListeners();
+    } else if (node.type === 'tool') {
+        const inspector = renderToolInspector(node, updateNodeDisplay, addLog);
         inspectorContent.innerHTML = inspector.html;
         inspector.setupListeners();
     }
@@ -764,6 +902,7 @@ function onCanvasMouseDown(e) {
     if (e.target === container || e.target.id === 'gridCanvas') {
         state.selectedNodeId = null;
         state.selectedEdgeId = null;
+        state.nodes.forEach((_, id) => updateNodeDisplay(id));
         updateInspector();
         renderEdges();
 
@@ -772,6 +911,7 @@ function onCanvasMouseDown(e) {
             state.panStartX = e.clientX;
             state.panStartY = e.clientY;
             container.style.cursor = 'grabbing';
+            document.body.classList.add('panning');
         }
     }
 }
@@ -835,8 +975,6 @@ function onCanvasMouseUp(e) {
                     hoveredPin.nodeId,
                     hoveredPin.pinName
                 );
-            } else {
-                showTooltip('Incompatible pins', e.clientX, e.clientY);
             }
         }
 
@@ -849,6 +987,7 @@ function onCanvasMouseUp(e) {
     state.isPanning = false;
     state.isDraggingNode = false;
     state.draggedNodeId = null;
+    document.body.classList.remove('dragging', 'panning');
 }
 
 function onCanvasWheel(e) {
@@ -879,6 +1018,7 @@ function onNodeMouseDown(e) {
     state.draggedNodeId = nodeId;
     state.dragOffsetX = world.x - node.x;
     state.dragOffsetY = world.y - node.y;
+    document.body.classList.add('dragging');
 }
 
 function onNodeClick(e) {
@@ -929,7 +1069,14 @@ function onCanvasDrop(e) {
     const y = e.clientY - rect.top;
 
     const world = screenToWorld(x, y);
-    createNode(nodeType, world.x, world.y);
+    const nodeId = createNode(nodeType, world.x, world.y);
+
+    // Select the newly created node
+    state.selectedNodeId = nodeId;
+    state.selectedEdgeId = null;
+    renderEdges();
+    state.nodes.forEach((_, id) => updateNodeDisplay(id));
+    updateInspector();
 }
 
 function onCanvasDragOver(e) {
@@ -979,12 +1126,12 @@ function updateRunButton() {
 }
 
 function checkForRunnablePath() {
-    // Check if there's at least one valid path from Prompt to Model or Optimize to Model
+    // Check if there's at least one valid path from System/User to Model or Optimize to Model
     for (const edge of state.edges.values()) {
         const sourceNode = state.nodes.get(edge.sourceNodeId);
         const targetNode = state.nodes.get(edge.targetNodeId);
 
-        if ((sourceNode?.type === 'prompt' || sourceNode?.type === 'optimize') && targetNode?.type === 'model') {
+        if ((sourceNode?.type === 'system' || sourceNode?.type === 'user' || sourceNode?.type === 'optimize') && targetNode?.type === 'model') {
             return true;
         }
     }
@@ -1015,11 +1162,11 @@ async function runFlow() {
     // Validate: check for empty prompts and missing models
     let hasError = false;
     for (const edge of state.edges.values()) {
-        const promptNode = state.nodes.get(edge.sourceNodeId);
-        if (promptNode?.type === 'prompt') {
-            if (!promptNode.data.systemPrompt.trim() && !promptNode.data.userInput.trim()) {
-                addLog('error', `System prompt or user input is required for node ${promptNode.data.title}`);
-                setNodeStatus(promptNode.id, 'error');
+        const sourceNode = state.nodes.get(edge.sourceNodeId);
+        if (sourceNode?.type === 'system' || sourceNode?.type === 'user') {
+            if (!sourceNode.data.promptText || !sourceNode.data.promptText.trim()) {
+                addLog('error', `Prompt text is required for node ${sourceNode.data.title}`);
+                setNodeStatus(sourceNode.id, 'error');
                 hasError = true;
             }
         }
@@ -1044,54 +1191,60 @@ async function runFlow() {
         return;
     }
 
-    // Build execution plan: find all Model nodes with incoming edges
-    const modelNodesToRun = [];
+    // Build execution plan: find all Model nodes and their inputs
+    const modelNodesMap = new Map(); // modelNodeId -> { modelNode, userPrompt, systemPrompt }
+
     for (const edge of state.edges.values()) {
         const targetNode = state.nodes.get(edge.targetNodeId);
+        const sourceNode = state.nodes.get(edge.sourceNodeId);
+
         if (targetNode?.type === 'model') {
-            const sourceNode = state.nodes.get(edge.sourceNodeId);
-            if (sourceNode?.type === 'prompt') {
-                // Combine system prompt and user input
-                const combinedPrompt = sourceNode.data.systemPrompt && sourceNode.data.userInput 
-                    ? `System: ${sourceNode.data.systemPrompt}\n\nUser: ${sourceNode.data.userInput}`
-                    : sourceNode.data.systemPrompt || sourceNode.data.userInput || '';
-                
-                modelNodesToRun.push({
+            // Initialize model node entry if not exists
+            if (!modelNodesMap.has(targetNode.id)) {
+                modelNodesMap.set(targetNode.id, {
                     modelNode: targetNode,
-                    promptText: combinedPrompt
-                });
-            } else if (sourceNode?.type === 'optimize') {
-                // Find the original user input from the prompt node that fed into the model
-                let originalUserInput = '';
-                for (const promptEdge of state.edges.values()) {
-                    if (promptEdge.targetNodeId === sourceNode.id) {
-                        const modelNode = state.nodes.get(promptEdge.sourceNodeId);
-                        if (modelNode?.type === 'model') {
-                            // Find the prompt node that fed into this model
-                            for (const originalPromptEdge of state.edges.values()) {
-                                if (originalPromptEdge.targetNodeId === modelNode.id) {
-                                    const promptNode = state.nodes.get(originalPromptEdge.sourceNodeId);
-                                    if (promptNode?.type === 'prompt') {
-                                        originalUserInput = promptNode.data.userInput;
-                                        break;
-                                    }
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-                
-                // Combine optimized system prompt with original user input
-                const combinedPrompt = sourceNode.data.optimizedSystemPrompt && originalUserInput 
-                    ? `System: ${sourceNode.data.optimizedSystemPrompt}\n\nUser: ${originalUserInput}`
-                    : sourceNode.data.optimizedSystemPrompt || originalUserInput || '';
-                
-                modelNodesToRun.push({
-                    modelNode: targetNode,
-                    promptText: combinedPrompt
+                    userPrompt: '',
+                    systemPrompt: ''
                 });
             }
+
+            const modelData = modelNodesMap.get(targetNode.id);
+
+            // Handle user input
+            if (edge.targetPin === 'user' && sourceNode?.type === 'user') {
+                modelData.userPrompt = sourceNode.data.promptText || '';
+            }
+
+            // Handle system input from system node
+            if (edge.targetPin === 'system' && sourceNode?.type === 'system') {
+                modelData.systemPrompt = sourceNode.data.promptText || '';
+            }
+
+            // Handle system input from optimize
+            if (edge.targetPin === 'system' && sourceNode?.type === 'optimize') {
+                modelData.systemPrompt = sourceNode.data.optimizedSystemPrompt || '';
+            }
+        }
+    }
+
+    // Build the final execution list
+    const modelNodesToRun = [];
+    for (const modelData of modelNodesMap.values()) {
+        // Combine system and user prompts
+        let combinedPrompt = '';
+        if (modelData.systemPrompt && modelData.userPrompt) {
+            combinedPrompt = `System: ${modelData.systemPrompt}\n\nUser: ${modelData.userPrompt}`;
+        } else if (modelData.systemPrompt) {
+            combinedPrompt = `System: ${modelData.systemPrompt}`;
+        } else if (modelData.userPrompt) {
+            combinedPrompt = `User: ${modelData.userPrompt}`;
+        }
+
+        if (combinedPrompt) {
+            modelNodesToRun.push({
+                modelNode: modelData.modelNode,
+                promptText: combinedPrompt
+            });
         }
     }
 
@@ -1115,6 +1268,18 @@ async function runFlow() {
         setNodeStatus(modelNode.id, 'running');
         addLog('info', `node_started: ${modelNode.data.title} (${modelNode.id})`);
 
+        // Build tools catalog for this model
+        const registeredTools = findRegisteredTools(modelNode.id, state.edges, state.nodes);
+        const toolsCatalog = buildToolsCatalog(registeredTools);
+
+        // if (toolsCatalog.length > 0) {
+        //     addLog('info', `Model has ${toolsCatalog.length} registered tool(s): ${toolsCatalog.map(t => t.name).join(', ')}`);
+        //     // Log the full catalog for debugging
+        //     toolsCatalog.forEach(tool => {
+        //         addLog('info', `  - ${tool.name}: ${tool.description}`);
+        //     });
+        // }
+
         const startTime = Date.now();
 
         try {
@@ -1133,7 +1298,9 @@ async function runFlow() {
                         }
                     }
                 },
-                state.runAbortController.signal
+                state.runAbortController.signal,
+                toolsCatalog.length > 0 ? toolsCatalog : null,
+                modelNode.data.provider || 'ollama'
             );
 
             const duration = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -1142,13 +1309,11 @@ async function runFlow() {
         } catch (error) {
             if (error.name === 'AbortError') {
                 setNodeStatus(modelNode.id, 'error');
-                modelNode.data.output = 'Canceled by user';
                 updateNodeDisplay(modelNode.id);
                 addLog('warn', 'run_canceled');
                 break;
             } else {
                 setNodeStatus(modelNode.id, 'error');
-                modelNode.data.output = `Error: ${error.message}`;
                 updateNodeDisplay(modelNode.id);
                 addLog('error', `node_error: ${modelNode.data.title} (${modelNode.id}) - ${error.message}`);
             }
@@ -1195,59 +1360,249 @@ function cancelRun() {
     }
 }
 
-async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk, signal) {
-    const url = 'http://localhost:11434/api/generate';
-    const body = {
-        model,
-        prompt,
-        stream: true,
-        options: {
-            temperature,
-            num_predict: maxTokens
-        }
-    };
+async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk, signal, toolsCatalog = null, provider = 'ollama') {
+    // Get adapter from provider registry
+    const adapter = providerRegistry.getAdapter(provider);
 
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal
-    });
-
-    if (!response.ok) {
-        let errorMessage = `Ollama request failed: ${response.status}`;
-        try {
-            const errorText = await response.text();
-            if (errorText) {
-                errorMessage += ` - ${errorText}`;
-            }
-        } catch (e) {
-            // Ignore parsing errors
-        }
-        throw new Error(errorMessage);
+    if (!adapter) {
+        throw new Error(`Provider "${provider}" not found or not configured`);
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
+    const settings = { model, temperature, maxTokens };
 
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+    // Session state for multi-turn conversations
+    const sessionState = { messages: [] };
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(l => l.trim());
+    // Tool-calling loop
+    let iterationCount = 0;
+    const maxIterations = 10; // Prevent infinite loops
 
-        for (const line of lines) {
+    while (iterationCount < maxIterations) {
+        iterationCount++;
+
+        // Prepare request
+        const preparedRequest = adapter.prepareRequest({
+            prompt,
+            toolsCatalog,
+            settings,
+            sessionState
+        });
+
+        // Build request based on provider
+        let url, headers;
+
+        if (provider === 'ollama') {
+            url = preparedRequest.useChat
+                ? 'http://localhost:11434/api/chat'
+                : 'http://localhost:11434/api/generate';
+            headers = { 'Content-Type': 'application/json' };
+        } else if (provider === 'openai') {
+            url = 'https://api.openai.com/v1/chat/completions';
+            const apiKey = providerRegistry.getApiKey('openai');
+
+            if (!apiKey) {
+                throw new Error('OpenAI API key not configured');
+            }
+
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            };
+        } else {
+            throw new Error(`Unsupported provider: ${provider}`);
+        }
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(preparedRequest.body),
+            signal
+        });
+
+        if (!response.ok) {
+            let errorMessage = `${provider} request failed: ${response.status}`;
             try {
-                const data = JSON.parse(line);
-                if (data.response) {
-                    onChunk(data.response);
+                const errorText = await response.text();
+                if (errorText) {
+                    errorMessage += ` - ${errorText}`;
                 }
             } catch (e) {
-                // Ignore parse errors
+                // Ignore parsing errors
+            }
+            addLog('error', `provider_auth_error: ${provider}`);
+            throw new Error(errorMessage);
+        }
+
+        // Stream response
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        const chunkState = {};
+        let pendingToolCalls = [];
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value);
+
+            try {
+                const parsed = adapter.parseChunk(chunk, chunkState);
+
+                if (parsed.textDelta) {
+                    onChunk(parsed.textDelta);
+                }
+
+                if (parsed.toolCalls) {
+                    pendingToolCalls.push(...parsed.toolCalls);
+                }
+            } catch (error) {
+                addLog('error', `adapter_parse_error: ${error.message}`);
+            }
+        }
+
+        // If no tool calls, we're done
+        if (pendingToolCalls.length === 0) {
+            break;
+        }
+
+        // Log detected tool calls with more detail
+        addLog('info', `Model requested ${pendingToolCalls.length} tool call(s): ${pendingToolCalls.map(tc => tc.name).join(', ')}`);
+
+        // Warn if there are duplicate tool calls
+        // const toolNames = pendingToolCalls.map(tc => tc.name);
+        // const duplicates = toolNames.filter((name, index) => toolNames.indexOf(name) !== index);
+        // if (duplicates.length > 0) {
+        //     addLog('warn', `Duplicate tool calls detected: ${duplicates.join(', ')} - model may be confused`);
+        // }
+
+        // Execute tool calls
+        let hasToolError = false;
+
+        for (const toolCall of pendingToolCalls) {
+            const { name, arguments: args } = toolCall;
+
+            // Find the tool node
+            const toolNode = Array.from(state.nodes.values()).find(
+                n => n.type === 'tool' && n.data.name === name
+            );
+
+            if (!toolNode) {
+                addLog('error', `tool_call_failed: Tool "${name}" not found`);
+                hasToolError = true;
+                break;
+            }
+
+            // Validate arguments against schema
+            const validationError = validateToolArguments(args, toolNode.data.parametersSchema);
+            if (validationError) {
+                addLog('error', `tool_call_failed: ${name} - ${validationError}`);
+                // addLog('error', `Invalid arguments provided: ${JSON.stringify(args)}`);
+                hasToolError = true;
+                break;
+            }
+
+            // Execute tool
+            // addLog('info', `tool_call_started: ${name} with args ${JSON.stringify(args)}`);
+            const startTime = Date.now();
+
+            try {
+                const normalized = await executeToolInWorker({
+                    code: toolNode.data.implementation.code,
+                    args,
+                    addLog,
+                    signal
+                });
+
+                const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+
+                if (normalized.ok) {
+                    // Log the actual result returned by the tool
+                    // let resultPreview = '';
+                    if (normalized.kind === 'text') {
+                        // resultPreview = normalized.result.length > 200
+                        //     ? normalized.result.substring(0, 200) + '...'
+                        //     : normalized.result;
+                        addLog('info', `tool_call_succeeded: ${name} (${duration}s, kind=${normalized.kind})`);
+                        // addLog('info', `tool_result: "${resultPreview}"`);
+                    } else if (normalized.kind === 'json') {
+                        // resultPreview = JSON.stringify(normalized.result).substring(0, 200);
+                        addLog('info', `tool_call_succeeded: ${name} (${duration}s, kind=${normalized.kind})`);
+                        // addLog('info', `tool_result: ${resultPreview}`);
+                    } else if (normalized.kind === 'bytes') {
+                        addLog('info', `tool_call_succeeded: ${name} (${duration}s, kind=${normalized.kind}, bytes=${normalized.result.length})`);
+                        // addLog('info', `tool_result: [Base64 data, ${normalized.result.length} chars]`);
+                    }
+                } else {
+                    addLog('error', `tool_call_failed: ${name} - ${normalized.error.message}`);
+                    hasToolError = true;
+                    break;
+                }
+
+                // Continue with tool result
+                adapter.continueWithToolResult(sessionState, {
+                    name,
+                    arguments: args,
+                    normalized
+                });
+            } catch (error) {
+                const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+                addLog('error', `tool_call_failed: ${name} - ${error.message} (${duration}s)`);
+                hasToolError = true;
+                break;
+            }
+        }
+
+        // If tool execution failed, stop and mark model as error
+        if (hasToolError) {
+            addLog('error', 'Tool execution failed - stopping run');
+            throw new Error('Tool execution failed');
+        }
+
+        // Continue to next iteration with tool results
+    }
+
+    if (iterationCount >= maxIterations) {
+        addLog('warn', 'Tool-calling loop exceeded maximum iterations');
+    }
+}
+
+/**
+ * Validate tool arguments against schema
+ */
+function validateToolArguments(args, schema) {
+    if (!schema || !schema.properties) {
+        return 'Invalid schema';
+    }
+
+    // Check required fields
+    if (schema.required && Array.isArray(schema.required)) {
+        for (const field of schema.required) {
+            if (!(field in args)) {
+                return `Missing required field: ${field}`;
             }
         }
     }
+
+    // Check types
+    for (const [key, value] of Object.entries(args)) {
+        const propSchema = schema.properties[key];
+        if (!propSchema) continue;
+
+        const actualType = typeof value;
+        const expectedType = propSchema.type;
+
+        if (expectedType === 'string' && actualType !== 'string') {
+            return `Field ${key} must be a string`;
+        }
+        if (expectedType === 'number' && actualType !== 'number') {
+            return `Field ${key} must be a number`;
+        }
+        if (expectedType === 'boolean' && actualType !== 'boolean') {
+            return `Field ${key} must be a boolean`;
+        }
+    }
+
+    return null;
 }
 
 // ============================================================================
@@ -1269,10 +1624,91 @@ async function loadModels() {
 }
 
 // ============================================================================
+// SETTINGS MODAL
+// ============================================================================
+
+const { providerRegistry } = require('../services/providerRegistry');
+
+function openSettingsModal() {
+    const modal = document.getElementById('settingsModal');
+    modal.style.display = 'flex';
+
+    // Load current OpenAI settings
+    const apiKey = providerRegistry.getApiKey('openai');
+
+    document.getElementById('openaiApiKey').value = apiKey || '';
+
+    // Update status
+    updateOpenAIStatus();
+}
+
+function closeSettingsModal() {
+    const modal = document.getElementById('settingsModal');
+    modal.style.display = 'none';
+}
+
+function updateOpenAIStatus() {
+    const statusEl = document.getElementById('openaiStatus');
+    const isConfigured = providerRegistry.isProviderConfigured('openai');
+
+    if (isConfigured) {
+        statusEl.textContent = 'Configured';
+        statusEl.className = 'provider-status provider-status-active';
+    } else {
+        statusEl.textContent = 'Not configured';
+        statusEl.className = 'provider-status';
+    }
+}
+
+async function saveOpenAISettings() {
+    const apiKey = document.getElementById('openaiApiKey').value.trim();
+
+    if (!apiKey) {
+        alert('Please enter an API key');
+        return;
+    }
+
+    try {
+        providerRegistry.setApiKey('openai', apiKey);
+        updateOpenAIStatus();
+
+        // Try to fetch models to validate the key
+        addLog('info', 'Validating OpenAI API key...');
+        const models = await providerRegistry.listModels('openai');
+        addLog('info', `OpenAI configured successfully with ${models.length} models available`);
+
+        // Refresh models in state if a model node is using OpenAI
+        for (const node of state.nodes.values()) {
+            if (node.type === 'model' && node.data.provider === 'openai') {
+                updateInspector();
+                break;
+            }
+        }
+    } catch (error) {
+        addLog('error', `provider_auth_error: openai - ${error.message}`);
+        alert(`Failed to validate OpenAI API key: ${error.message}`);
+    }
+}
+
+function removeOpenAISettings() {
+    if (confirm('Are you sure you want to remove the OpenAI API key?')) {
+        providerRegistry.removeApiKey('openai');
+        document.getElementById('openaiApiKey').value = '';
+        updateOpenAIStatus();
+        addLog('info', 'OpenAI API key removed');
+    }
+}
+
+// ============================================================================
 // INITIALIZATION
 // ============================================================================
 
 document.addEventListener('DOMContentLoaded', async function() {
+    // Set up tool node helpers
+    setGetAllToolNodes(() => {
+        return Array.from(state.nodes.values()).filter(n => n.type === 'tool');
+    });
+
     // Load models
     await loadModels();
 
@@ -1308,18 +1744,16 @@ document.addEventListener('DOMContentLoaded', async function() {
     document.getElementById('runButton').addEventListener('click', runFlow);
     document.getElementById('cancelButton').addEventListener('click', cancelRun);
 
-    // Logs collapse
-    document.getElementById('logsCollapseButton').addEventListener('click', () => {
-        const logsBody = document.getElementById('logsBody');
-        const button = document.getElementById('logsCollapseButton');
-        state.logsCollapsed = !state.logsCollapsed;
+    // Settings button
+    document.getElementById('settingsButton').addEventListener('click', openSettingsModal);
+    document.getElementById('closeSettingsButton').addEventListener('click', closeSettingsModal);
+    document.getElementById('saveOpenaiButton').addEventListener('click', saveOpenAISettings);
+    document.getElementById('removeOpenaiButton').addEventListener('click', removeOpenAISettings);
 
-        if (state.logsCollapsed) {
-            logsBody.style.display = 'none';
-            button.textContent = 'Expand';
-        } else {
-            logsBody.style.display = 'block';
-            button.textContent = 'Collapse';
+    // Close modal when clicking outside
+    document.getElementById('settingsModal').addEventListener('click', (e) => {
+        if (e.target.id === 'settingsModal') {
+            closeSettingsModal();
         }
     });
 
@@ -1329,8 +1763,41 @@ document.addEventListener('DOMContentLoaded', async function() {
         updateLogsUI();
     });
 
+    // Collapse/expand logs button
+    document.getElementById('collapseLogsButton').addEventListener('click', () => {
+        const logsPanel = document.getElementById('logsPanel');
+        const collapseButton = document.getElementById('collapseLogsButton');
+        state.logsCollapsed = !state.logsCollapsed;
+
+        if (state.logsCollapsed) {
+            // Store current height before collapsing
+            state.logsExpandedHeight = logsPanel.offsetHeight;
+            // Explicitly set height to collapsed state
+            logsPanel.style.height = '36px';
+            logsPanel.classList.add('collapsed');
+            collapseButton.textContent = '+';
+            collapseButton.title = 'Expand';
+        } else {
+            // Restore to previous height
+            logsPanel.style.height = `${state.logsExpandedHeight}px`;
+            logsPanel.classList.remove('collapsed');
+            collapseButton.textContent = '−';
+            collapseButton.title = 'Collapse';
+
+            // Scroll to bottom when expanding
+            const logsBody = document.getElementById('logsBody');
+            logsBody.scrollTop = logsBody.scrollHeight;
+        }
+    });
+
     // Keyboard
     document.addEventListener('keydown', onKeyDown);
+
+    // Inspector panel resize
+    setupInspectorResize();
+
+    // Logs panel resize
+    setupLogsResize();
 
     // Initial render
     renderGrid();
@@ -1343,3 +1810,112 @@ document.addEventListener('DOMContentLoaded', async function() {
         renderAll();
     });
 });
+
+// ============================================================================
+// INSPECTOR RESIZE
+// ============================================================================
+
+function setupInspectorResize() {
+    const rightPanel = document.getElementById('rightPanel');
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    rightPanel.addEventListener('mousedown', (e) => {
+        const rect = rightPanel.getBoundingClientRect();
+        const edgeThreshold = 4;
+
+        // Check if mouse is near the left edge
+        if (e.clientX >= rect.left && e.clientX <= rect.left + edgeThreshold) {
+            isResizing = true;
+            startX = e.clientX;
+            startWidth = rect.width;
+            rightPanel.classList.add('resizing');
+            document.body.style.cursor = 'ew-resize';
+            e.preventDefault();
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+
+        const deltaX = startX - e.clientX; // Note: reversed because we're dragging left edge
+        const newWidth = startWidth + deltaX;
+
+        // Clamp between min and max width
+        const minWidth = 280;
+        const maxWidth = 600;
+        const clampedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+
+        rightPanel.style.width = `${clampedWidth}px`;
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            rightPanel.classList.remove('resizing');
+            document.body.style.cursor = '';
+        }
+    });
+}
+
+// ============================================================================
+// LOGS RESIZE
+// ============================================================================
+
+function setupLogsResize() {
+    const logsPanel = document.getElementById('logsPanel');
+    let isResizing = false;
+    let startY = 0;
+    let startHeight = 0;
+
+    logsPanel.addEventListener('mousedown', (e) => {
+        // Don't allow resize when collapsed
+        if (state.logsCollapsed) return;
+
+        const rect = logsPanel.getBoundingClientRect();
+        const edgeThreshold = 4;
+
+        // Check if mouse is near the top edge
+        if (e.clientY >= rect.top && e.clientY <= rect.top + edgeThreshold) {
+            isResizing = true;
+            startY = e.clientY;
+            startHeight = logsPanel.offsetHeight;
+            logsPanel.classList.add('resizing');
+            document.body.style.cursor = 'ns-resize';
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+
+        const deltaY = startY - e.clientY; // Note: reversed because we're dragging top edge
+        const newHeight = startHeight + deltaY;
+
+        // Calculate max height based on inspector header bottom edge
+        const inspectorHeader = document.querySelector('.inspector-container .panel-header');
+        const logsPanelRect = logsPanel.getBoundingClientRect();
+        const inspectorHeaderRect = inspectorHeader.getBoundingClientRect();
+
+        // Max height for logs panel: distance from inspector header bottom to logs panel bottom
+        const maxHeight = logsPanelRect.bottom - inspectorHeaderRect.bottom;
+
+        // Clamp between min and max height (min is header height: 36px)
+        const minHeight = 36;
+        const clampedHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
+
+        logsPanel.style.height = `${clampedHeight}px`;
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            logsPanel.classList.remove('resizing');
+            document.body.style.cursor = '';
+            // Save the resized height so collapse/expand remembers it
+            state.logsExpandedHeight = logsPanel.offsetHeight;
+        }
+    });
+}

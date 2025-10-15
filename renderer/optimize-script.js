@@ -27,17 +27,18 @@ function renderOptimizeNode(node) {
             <div class="header-bottom">
                 <div class="pin-container pin-input-container">
                     <div class="pin pin-input" data-pin="input"></div>
-                    <span class="pin-label">input</span>
+                    <span class="pin-label">result</span>
                 </div>
                 <div class="pin-spacer"></div>
                 <div class="pin-container pin-output-container">
-                    <span class="pin-label">prompt</span>
+                    <span class="pin-label">optimized</span>
                     <div class="pin pin-output" data-pin="prompt"></div>
                 </div>
             </div>
         </div>
         <div class="node-body">
-            <div class="node-output-viewer">${node.data.optimizedSystemPrompt || 'Run to generate optimized system prompt'}</div>
+            <div class="node-description">Generates an improved prompt based on feedback</div>
+            <div class="node-output-viewer">${node.data.optimizedSystemPrompt || ''}</div>
         </div>
     `;
 }
@@ -52,11 +53,11 @@ function renderOptimizeInspector(node, updateNodeDisplay) {
             <input type="text" id="inspectorTitle" class="inspector-input" value="${node.data.title}">
         </div>
         <div class="inspector-section">
-            <label>Feedback (How to improve?)</label>
+            <label>Feedback</label>
             <textarea id="inspectorFeedback" class="inspector-textarea" rows="6">${node.data.feedback}</textarea>
         </div>
         <div class="inspector-section">
-            <label>Optimized System Prompt (Read-only)</label>
+            <label>Optimized Prompt</label>
             <textarea id="inspectorOptimizedSystemPrompt" class="inspector-textarea" rows="10" readonly>${node.data.optimizedSystemPrompt}</textarea>
         </div>
     `;
@@ -87,9 +88,9 @@ function isValidOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin)
         return true;
     }
 
-    // Allow Optimize.prompt → Model.prompt
+    // Allow Optimize.prompt → Model.system
     if (sourceNode.type === 'optimize' && sourcePin === 'prompt' &&
-        targetNode.type === 'model' && targetPin === 'prompt') {
+        targetNode.type === 'model' && targetPin === 'system') {
         return true;
     }
 
@@ -123,7 +124,7 @@ Do not include any other text or explanations.`;
  */
 function findOptimizeNodesToRun(edges, nodes) {
     const optimizeNodesToRun = [];
-    
+
     for (const edge of edges.values()) {
         const targetNode = nodes.get(edge.targetNodeId);
         if (targetNode?.type === 'optimize') {
@@ -132,17 +133,28 @@ function findOptimizeNodesToRun(edges, nodes) {
                 // Find the original prompt components for this model
                 let originalSystemPrompt = '';
                 let originalUserInput = '';
+
                 for (const promptEdge of edges.values()) {
                     if (promptEdge.targetNodeId === sourceNode.id) {
-                        const promptNode = nodes.get(promptEdge.sourceNodeId);
-                        if (promptNode?.type === 'prompt') {
-                            originalSystemPrompt = promptNode.data.systemPrompt;
-                            originalUserInput = promptNode.data.userInput;
-                            break;
+                        const inputNode = nodes.get(promptEdge.sourceNodeId);
+
+                        // Get user input from user → model.user
+                        if (inputNode?.type === 'user' && promptEdge.targetPin === 'user') {
+                            originalUserInput = inputNode.data.promptText || '';
+                        }
+
+                        // Get system prompt from system → model.system
+                        if (inputNode?.type === 'system' && promptEdge.targetPin === 'system') {
+                            originalSystemPrompt = inputNode.data.promptText || '';
+                        }
+
+                        // Get system prompt from optimize → model.system
+                        if (inputNode?.type === 'optimize' && promptEdge.targetPin === 'system') {
+                            originalSystemPrompt = inputNode.data.optimizedSystemPrompt || '';
                         }
                     }
                 }
-                
+
                 optimizeNodesToRun.push({
                     optimizeNode: targetNode,
                     originalSystemPrompt: originalSystemPrompt,
@@ -153,7 +165,7 @@ function findOptimizeNodesToRun(edges, nodes) {
             }
         }
     }
-    
+
     return optimizeNodesToRun;
 }
 
