@@ -5,8 +5,9 @@
  * It creates the main application window and sets up event handlers.
  */
 
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+const { secureStorage } = require('./secureStorage');
 
 /**
  * Creates the main application window
@@ -17,7 +18,8 @@ function createWindow() {
         height: 900,
         webPreferences: {
             nodeIntegration: true,
-            contextIsolation: false
+            contextIsolation: false,
+            preload: path.join(__dirname, 'preload.js')
         }
     });
 
@@ -38,4 +40,36 @@ app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
         createWindow();
     }
+});
+
+// ============================================================================
+// IPC HANDLERS FOR SECURE STORAGE
+// ============================================================================
+
+/**
+ * Handle storing an API key securely
+ */
+ipcMain.handle('secure-storage:set', async (event, providerId, apiKey) => {
+    return await secureStorage.setApiKey(providerId, apiKey);
+});
+
+/**
+ * Handle retrieving an API key
+ */
+ipcMain.handle('secure-storage:get', async (event, providerId) => {
+    return await secureStorage.getApiKey(providerId);
+});
+
+/**
+ * Handle removing an API key
+ */
+ipcMain.handle('secure-storage:remove', async (event, providerId) => {
+    return await secureStorage.removeApiKey(providerId);
+});
+
+/**
+ * Handle checking if an API key exists
+ */
+ipcMain.handle('secure-storage:has', async (event, providerId) => {
+    return await secureStorage.hasApiKey(providerId);
 });

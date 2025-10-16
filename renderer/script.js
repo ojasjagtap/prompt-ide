@@ -658,10 +658,9 @@ function updateInspector() {
             node.data.provider = 'ollama';
         }
 
-        // Get available providers
+        // Get available providers (show all - API key check happens at runtime)
         const providers = providerRegistry.getProviders();
         const providerOptions = providers
-            .filter(p => !p.requiresApiKey || providerRegistry.isProviderConfigured(p.id))
             .map(p => `<option value="${p.id}" ${p.id === node.data.provider ? 'selected' : ''}>${p.name}</option>`)
             .join('');
 
@@ -1362,7 +1361,7 @@ function cancelRun() {
 
 async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk, signal, toolsCatalog = null, provider = 'ollama') {
     // Get adapter from provider registry
-    const adapter = providerRegistry.getAdapter(provider);
+    const adapter = await providerRegistry.getAdapter(provider);
 
     if (!adapter) {
         throw new Error(`Provider "${provider}" not found or not configured`);
@@ -1398,7 +1397,7 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
             headers = { 'Content-Type': 'application/json' };
         } else if (provider === 'openai') {
             url = 'https://api.openai.com/v1/chat/completions';
-            const apiKey = providerRegistry.getApiKey('openai');
+            const apiKey = await providerRegistry.getApiKey('openai');
 
             if (!apiKey) {
                 throw new Error('OpenAI API key not configured');
@@ -1629,17 +1628,17 @@ async function loadModels() {
 
 const { providerRegistry } = require('../services/providerRegistry');
 
-function openSettingsModal() {
+async function openSettingsModal() {
     const modal = document.getElementById('settingsModal');
     modal.style.display = 'flex';
 
     // Load current OpenAI settings
-    const apiKey = providerRegistry.getApiKey('openai');
+    const apiKey = await providerRegistry.getApiKey('openai');
 
     document.getElementById('openaiApiKey').value = apiKey || '';
 
     // Update status
-    updateOpenAIStatus();
+    await updateOpenAIStatus();
 }
 
 function closeSettingsModal() {
@@ -1647,9 +1646,9 @@ function closeSettingsModal() {
     modal.style.display = 'none';
 }
 
-function updateOpenAIStatus() {
+async function updateOpenAIStatus() {
     const statusEl = document.getElementById('openaiStatus');
-    const isConfigured = providerRegistry.isProviderConfigured('openai');
+    const isConfigured = await providerRegistry.isProviderConfigured('openai');
 
     if (isConfigured) {
         statusEl.textContent = 'Configured';
@@ -1669,8 +1668,8 @@ async function saveOpenAISettings() {
     }
 
     try {
-        providerRegistry.setApiKey('openai', apiKey);
-        updateOpenAIStatus();
+        await providerRegistry.setApiKey('openai', apiKey);
+        await updateOpenAIStatus();
 
         // Try to fetch models to validate the key
         addLog('info', 'Validating OpenAI API key...');
@@ -1690,11 +1689,11 @@ async function saveOpenAISettings() {
     }
 }
 
-function removeOpenAISettings() {
+async function removeOpenAISettings() {
     if (confirm('Are you sure you want to remove the OpenAI API key?')) {
-        providerRegistry.removeApiKey('openai');
+        await providerRegistry.removeApiKey('openai');
         document.getElementById('openaiApiKey').value = '';
-        updateOpenAIStatus();
+        await updateOpenAIStatus();
         addLog('info', 'OpenAI API key removed');
     }
 }

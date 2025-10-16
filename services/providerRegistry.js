@@ -49,53 +49,74 @@ class ProviderRegistry {
     }
 
     /**
-     * Check if a provider is configured (has API key if required)
+     * Check if a provider is configured (has API key if required) - async
      */
-    isProviderConfigured(providerId) {
+    async isProviderConfigured(providerId) {
         const provider = this.providers.get(providerId);
         if (!provider) return false;
 
         if (!provider.requiresApiKey) return true;
 
         // Check if API key exists in storage
-        const apiKey = this.getApiKey(providerId);
+        const apiKey = await this.getApiKey(providerId);
         return !!apiKey;
     }
 
     /**
-     * Set API key for a provider
+     * Set API key for a provider (async - uses secure storage)
      */
-    setApiKey(providerId, apiKey) {
-        const storageKey = `provider_${providerId}_apikey`;
-
-        if (typeof localStorage !== 'undefined') {
-            if (apiKey) {
-                localStorage.setItem(storageKey, apiKey);
-            } else {
-                localStorage.removeItem(storageKey);
+    async setApiKey(providerId, apiKey) {
+        try {
+            // Use secure storage if available, fallback to localStorage
+            if (typeof window !== 'undefined' && window.secureStorage) {
+                if (apiKey) {
+                    await window.secureStorage.setApiKey(providerId, apiKey);
+                } else {
+                    await window.secureStorage.removeApiKey(providerId);
+                }
+            } else if (typeof localStorage !== 'undefined') {
+                // Fallback to localStorage (less secure)
+                const storageKey = `provider_${providerId}_apikey`;
+                if (apiKey) {
+                    localStorage.setItem(storageKey, apiKey);
+                } else {
+                    localStorage.removeItem(storageKey);
+                }
             }
-        }
 
-        // Clear model cache when API key changes
-        this.modelCache.delete(providerId);
+            // Clear model cache when API key changes
+            this.modelCache.delete(providerId);
+        } catch (error) {
+            console.error('Failed to set API key:', error);
+            throw error;
+        }
     }
 
     /**
-     * Get API key for a provider
+     * Get API key for a provider (async - uses secure storage)
      */
-    getApiKey(providerId) {
-        const storageKey = `provider_${providerId}_apikey`;
-        if (typeof localStorage !== 'undefined') {
-            return localStorage.getItem(storageKey);
+    async getApiKey(providerId) {
+        try {
+            // Use secure storage if available, fallback to localStorage
+            if (typeof window !== 'undefined' && window.secureStorage) {
+                return await window.secureStorage.getApiKey(providerId);
+            } else if (typeof localStorage !== 'undefined') {
+                // Fallback to localStorage (less secure)
+                const storageKey = `provider_${providerId}_apikey`;
+                return localStorage.getItem(storageKey);
+            }
+            return null;
+        } catch (error) {
+            console.error('Failed to get API key:', error);
+            return null;
         }
-        return null;
     }
 
     /**
-     * Remove API key for a provider
+     * Remove API key for a provider (async - uses secure storage)
      */
-    removeApiKey(providerId) {
-        this.setApiKey(providerId, null);
+    async removeApiKey(providerId) {
+        await this.setApiKey(providerId, null);
         this.modelCache.delete(providerId);
     }
 
@@ -130,7 +151,7 @@ class ProviderRegistry {
                 throw error;
             }
         } else if (providerId === 'openai') {
-            const apiKey = this.getApiKey('openai');
+            const apiKey = await this.getApiKey('openai');
             if (!apiKey) {
                 throw new Error('OpenAI API key not configured');
             }
@@ -177,9 +198,9 @@ class ProviderRegistry {
     }
 
     /**
-     * Get adapter instance for a provider
+     * Get adapter instance for a provider (async - retrieves API key securely)
      */
-    getAdapter(providerId) {
+    async getAdapter(providerId) {
         // Return cached adapter if available
         if (this.adapters.has(providerId)) {
             return this.adapters.get(providerId);
@@ -191,8 +212,9 @@ class ProviderRegistry {
             adapter = new OllamaAdapter();
         } else if (providerId === 'openai') {
             const { OpenAIAdapter } = require('../renderer/model-adapters');
+            const apiKey = await this.getApiKey('openai');
             adapter = new OpenAIAdapter({
-                apiKey: this.getApiKey('openai')
+                apiKey: apiKey
             });
         }
 
