@@ -8,13 +8,6 @@
  */
 class ModelAdapter {
     /**
-     * Check if this adapter supports tools
-     */
-    supportsTools() {
-        return false;
-    }
-
-    /**
      * Prepare request payload
      * @param {Object} options
      * @param {string} options.prompt - User prompt
@@ -52,10 +45,6 @@ class ModelAdapter {
  * Ollama Adapter with native tool support
  */
 class OllamaAdapter extends ModelAdapter {
-    supportsTools() {
-        return true;
-    }
-
     prepareRequest({ prompt, toolsCatalog, settings, sessionState }) {
         // If tools are present, we MUST use chat format
         const hasTools = toolsCatalog && toolsCatalog.length > 0;
@@ -64,7 +53,13 @@ class OllamaAdapter extends ModelAdapter {
             // Use chat format for tool calling
             // Initialize messages if not present
             if (!sessionState.messages || sessionState.messages.length === 0) {
-                sessionState.messages = [{ role: 'user', content: prompt }];
+                sessionState.messages = [
+                    {
+                        role: 'system',
+                        content: 'You are a helpful assistant. You have access to tools that you can use when needed. However, if the user\'s question can be answered directly without using any tools, you should respond directly. Only use tools when they are necessary to complete the task.'
+                    },
+                    { role: 'user', content: prompt }
+                ];
             }
 
             const body = {
@@ -141,28 +136,8 @@ class OllamaAdapter extends ModelAdapter {
     }
 
     continueWithToolResult(sessionState, toolResult) {
-        // Update session with tool result
-        if (!sessionState.messages) {
-            sessionState.messages = [];
-        }
-
-        // If we don't have an assistant message with tool_calls yet, add it
-        // (This should have been saved during the streaming, but we'll ensure it exists)
-        const lastMessage = sessionState.messages[sessionState.messages.length - 1];
-        if (!lastMessage || lastMessage.role !== 'assistant') {
-            sessionState.messages.push({
-                role: 'assistant',
-                content: '',
-                tool_calls: [{
-                    function: {
-                        name: toolResult.name,
-                        arguments: toolResult.arguments
-                    }
-                }]
-            });
-        }
-
         // Add tool result message (Ollama format)
+        // The assistant message with tool_calls should already be in sessionState.messages
         sessionState.messages.push({
             role: 'tool',
             content: this.formatToolResultForModel(toolResult.normalized)
@@ -174,7 +149,7 @@ class OllamaAdapter extends ModelAdapter {
     formatToolResultForModel(normalized) {
         if (!normalized.ok) {
             return JSON.stringify({
-                error: normalized.error
+                error: normalized.error?.message || String(normalized.error)
             });
         }
 
@@ -195,10 +170,6 @@ class OllamaAdapter extends ModelAdapter {
  * Uses prompt injection to simulate tool calling
  */
 class FallbackPromptAdapter extends ModelAdapter {
-    supportsTools() {
-        return true; // Simulated support
-    }
-
     prepareRequest({ prompt, toolsCatalog, settings, sessionState }) {
         let enhancedPrompt = prompt;
 
@@ -208,11 +179,11 @@ class FallbackPromptAdapter extends ModelAdapter {
 
             enhancedPrompt = `${prompt}
 
-You have access to the following tools:
+You may use one of the following tools if needed:
 
 ${toolsDescription}
 
-To use a tool, respond with ONLY a JSON object in this EXACT format:
+To use a tool, respond with a JSON object in this format:
 {
   "tool_call": {
     "name": "tool_name",
@@ -220,7 +191,7 @@ To use a tool, respond with ONLY a JSON object in this EXACT format:
   }
 }
 
-Do not include any other text. If you don't need to use a tool, respond normally.`;
+If the user's question doesn't require a tool, simply respond to their question directly.`;
         }
 
         const body = {
@@ -342,17 +313,23 @@ class OpenAIAdapter extends ModelAdapter {
         this.apiKey = apiKey;
     }
 
-    supportsTools() {
-        return true;
-    }
-
     prepareRequest({ prompt, toolsCatalog, settings, sessionState }) {
         const hasTools = toolsCatalog && toolsCatalog.length > 0;
 
         // Build messages array
         // Initialize messages if not present
         if (!sessionState.messages || sessionState.messages.length === 0) {
-            sessionState.messages = [{ role: 'user', content: prompt }];
+            if (hasTools) {
+                sessionState.messages = [
+                    {
+                        role: 'system',
+                        content: 'You are a helpful assistant. You have access to tools that you can use when needed. However, if the user\'s question can be answered directly without using any tools, you should respond directly. Only use tools when they are necessary to complete the task.'
+                    },
+                    { role: 'user', content: prompt }
+                ];
+            } else {
+                sessionState.messages = [{ role: 'user', content: prompt }];
+            }
         }
 
         const body = {
@@ -410,12 +387,22 @@ class OpenAIAdapter extends ModelAdapter {
                         const index = tc.index;
                         if (!chunkState.toolCallsBuilder[index]) {
                             chunkState.toolCallsBuilder[index] = {
+                                id: '',
+                                type: 'function',
                                 name: '',
                                 arguments: ''
                             };
                         }
 
                         const builder = chunkState.toolCallsBuilder[index];
+
+                        if (tc.id) {
+                            builder.id = tc.id;
+                        }
+
+                        if (tc.type) {
+                            builder.type = tc.type;
+                        }
 
                         if (tc.function?.name) {
                             builder.name = tc.function.name;
@@ -431,6 +418,8 @@ class OpenAIAdapter extends ModelAdapter {
                 if (choice.finish_reason === 'tool_calls' && chunkState.toolCallsBuilder) {
                     // Finalize tool calls
                     result.toolCalls = Object.values(chunkState.toolCallsBuilder).map(builder => ({
+                        id: builder.id,
+                        type: builder.type,
                         name: builder.name,
                         arguments: JSON.parse(builder.arguments)
                     }));
@@ -444,31 +433,12 @@ class OpenAIAdapter extends ModelAdapter {
     }
 
     continueWithToolResult(sessionState, toolResult) {
-        if (!sessionState.messages) {
-            sessionState.messages = [];
-        }
-
-        // Add assistant message with tool call
-        const lastMessage = sessionState.messages[sessionState.messages.length - 1];
-        if (!lastMessage || lastMessage.role !== 'assistant') {
-            sessionState.messages.push({
-                role: 'assistant',
-                content: null,
-                tool_calls: [{
-                    id: `call_${Date.now()}`,
-                    type: 'function',
-                    function: {
-                        name: toolResult.name,
-                        arguments: JSON.stringify(toolResult.arguments)
-                    }
-                }]
-            });
-        }
-
-        // Add tool result message
+        // Add tool result message (OpenAI format)
+        // The assistant message with tool_calls should already be in sessionState.messages
+        // We need to use the same tool_call_id that was in the assistant's tool_calls
         sessionState.messages.push({
             role: 'tool',
-            tool_call_id: `call_${Date.now()}`,
+            tool_call_id: toolResult.id || `call_${Date.now()}`, // Fallback if id not provided
             content: this.formatToolResultForModel(toolResult.normalized)
         });
 
@@ -494,19 +464,9 @@ class OpenAIAdapter extends ModelAdapter {
     }
 }
 
-/**
- * Get adapter for a given model
- */
-function getAdapterForModel(modelName) {
-    // For now, use Ollama adapter for all models
-    // In the future, we can detect model capabilities and choose the right adapter
-    return new OllamaAdapter();
-}
-
 module.exports = {
     ModelAdapter,
     OllamaAdapter,
     OpenAIAdapter,
-    FallbackPromptAdapter,
-    getAdapterForModel
+    FallbackPromptAdapter
 };

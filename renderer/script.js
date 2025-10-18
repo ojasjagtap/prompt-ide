@@ -23,7 +23,6 @@ const {
     setGetAllToolNodes
 } = require('./tool-script');
 const { executeToolInWorker } = require('./tool-worker-launcher');
-const { getAdapterForModel } = require('./model-adapters');
 
 // ============================================================================
 // STATE MANAGEMENT
@@ -448,23 +447,8 @@ function isValidConnection(sourceNodeId, sourcePin, targetNodeId, targetPin) {
         return true;
     }
 
-    // Check tool connections (with tool-call compatibility gating)
+    // Check tool connections
     if (isValidToolConnection(sourceNode, sourcePin, targetNode, targetPin)) {
-        // If connecting a Tool to a Model's tools pin, check if model supports tools
-        if (sourceNode.type === 'tool' && targetNode.type === 'model' && targetPin === 'tools') {
-            const provider = targetNode.data.provider || 'ollama';
-            const modelId = targetNode.data.model;
-
-            if (!modelId) {
-                // Model not selected yet, allow connection (will be validated at runtime)
-                return true;
-            }
-
-            if (!providerRegistry.supportsTools(provider, modelId)) {
-                addLog('error', 'Incompatible connection attempted: model does not support tool calls');
-                return false;
-            }
-        }
         return true;
     }
 
@@ -1160,7 +1144,7 @@ async function runFlow() {
             const hasUserPrompt = sourceNode.data.userPrompt && sourceNode.data.userPrompt.trim();
 
             if (!hasSystemPrompt && !hasUserPrompt) {
-                addLog('error', `At least one prompt (System or User) is required for node ${sourceNode.data.title}`);
+                addLog('error', `At least one prompt is required for node ${sourceNode.data.title}`);
                 setNodeStatus(sourceNode.id, 'error');
                 hasError = true;
             }
@@ -1429,6 +1413,7 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
         const decoder = new TextDecoder();
         const chunkState = {};
         let pendingToolCalls = [];
+        let accumulatedContent = '';
 
         while (true) {
             const { done, value } = await reader.read();
@@ -1440,6 +1425,7 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
                 const parsed = adapter.parseChunk(chunk, chunkState);
 
                 if (parsed.textDelta) {
+                    accumulatedContent += parsed.textDelta;
                     onChunk(parsed.textDelta);
                 }
 
@@ -1449,6 +1435,43 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
             } catch (error) {
                 addLog('error', `adapter_parse_error: ${error.message}`);
             }
+        }
+
+        // After streaming, save the assistant's message to conversation history
+        // This must happen BEFORE we process tool calls
+        if (pendingToolCalls.length > 0 || accumulatedContent) {
+            // Prepare tool_calls array for the message
+            // Include all fields (id, type) for OpenAI compatibility
+            const toolCallsForMessage = pendingToolCalls.map(tc => {
+                const toolCallMsg = {
+                    function: {
+                        name: tc.name,
+                        arguments: tc.arguments
+                    }
+                };
+
+                // Include OpenAI-specific fields if present
+                if (tc.id) {
+                    toolCallMsg.id = tc.id;
+                }
+                if (tc.type) {
+                    toolCallMsg.type = tc.type;
+                }
+
+                return toolCallMsg;
+            });
+
+            const assistantMessage = {
+                role: 'assistant',
+                content: accumulatedContent || ''
+            };
+
+            // Only add tool_calls if there are any
+            if (toolCallsForMessage.length > 0) {
+                assistantMessage.tool_calls = toolCallsForMessage;
+            }
+
+            sessionState.messages.push(assistantMessage);
         }
 
         // If no tool calls, we're done
@@ -1470,7 +1493,7 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
         let hasToolError = false;
 
         for (const toolCall of pendingToolCalls) {
-            const { name, arguments: args } = toolCall;
+            const { name, arguments: args, id, type } = toolCall;
 
             // Find the tool node
             const toolNode = Array.from(state.nodes.values()).find(
@@ -1533,7 +1556,9 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
                 adapter.continueWithToolResult(sessionState, {
                     name,
                     arguments: args,
-                    normalized
+                    normalized,
+                    id,  // For OpenAI compatibility
+                    type // For OpenAI compatibility
                 });
             } catch (error) {
                 const duration = ((Date.now() - startTime) / 1000).toFixed(2);

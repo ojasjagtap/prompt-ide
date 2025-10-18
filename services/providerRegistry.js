@@ -15,15 +15,13 @@ class ProviderRegistry {
         this.registerProvider({
             id: 'ollama',
             name: 'Ollama',
-            requiresApiKey: false,
-            supportsToolsByDefault: true
+            requiresApiKey: false
         });
 
         this.registerProvider({
             id: 'openai',
             name: 'OpenAI',
-            requiresApiKey: true,
-            supportsToolsByDefault: true
+            requiresApiKey: true
         });
     }
 
@@ -194,6 +192,7 @@ class ProviderRegistry {
 
         // Cache the results
         this.modelCache.set(providerId, models);
+
         return models;
     }
 
@@ -223,23 +222,6 @@ class ProviderRegistry {
         }
 
         return adapter;
-    }
-
-    /**
-     * Check if a specific model supports tools
-     */
-    supportsTools(providerId, modelId) {
-        if (providerId === 'ollama') {
-            return true; // Ollama adapter handles tool support
-        } else if (providerId === 'openai') {
-            // Most GPT models support function calling
-            return modelId && (
-                modelId.includes('gpt-4') ||
-                modelId.includes('gpt-3.5-turbo')
-            );
-        }
-
-        return false;
     }
 
     /**
