@@ -822,6 +822,10 @@ body.panning {
     border-left: 2px solid #4a4a4a;
 }
 
+.node-description:last-child {
+    margin-bottom: 0;
+}
+
 .node-info {
     font-size: 10px;
     color: #888;

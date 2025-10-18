@@ -27,7 +27,7 @@ function renderOptimizeNode(node) {
             <div class="header-bottom">
                 <div class="pin-container pin-input-container">
                     <div class="pin pin-input" data-pin="input"></div>
-                    <span class="pin-label">result</span>
+                    <span class="pin-label">response</span>
                 </div>
                 <div class="pin-spacer"></div>
                 <div class="pin-container pin-output-container">
@@ -88,9 +88,9 @@ function isValidOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin)
         return true;
     }
 
-    // Allow Optimize.prompt → Model.system
+    // Allow Optimize.prompt → Model.prompt
     if (sourceNode.type === 'optimize' && sourcePin === 'prompt' &&
-        targetNode.type === 'model' && targetPin === 'system') {
+        targetNode.type === 'model' && targetPin === 'prompt') {
         return true;
     }
 
@@ -138,18 +138,14 @@ function findOptimizeNodesToRun(edges, nodes) {
                     if (promptEdge.targetNodeId === sourceNode.id) {
                         const inputNode = nodes.get(promptEdge.sourceNodeId);
 
-                        // Get user input from user → model.user
-                        if (inputNode?.type === 'user' && promptEdge.targetPin === 'user') {
-                            originalUserInput = inputNode.data.promptText || '';
+                        // Get prompts from prompt → model.prompt
+                        if (inputNode?.type === 'prompt' && promptEdge.targetPin === 'prompt') {
+                            originalSystemPrompt = inputNode.data.systemPrompt || '';
+                            originalUserInput = inputNode.data.userPrompt || '';
                         }
 
-                        // Get system prompt from system → model.system
-                        if (inputNode?.type === 'system' && promptEdge.targetPin === 'system') {
-                            originalSystemPrompt = inputNode.data.promptText || '';
-                        }
-
-                        // Get system prompt from optimize → model.system
-                        if (inputNode?.type === 'optimize' && promptEdge.targetPin === 'system') {
+                        // Get system prompt from optimize → model.prompt
+                        if (inputNode?.type === 'optimize' && promptEdge.targetPin === 'prompt') {
                             originalSystemPrompt = inputNode.data.optimizedSystemPrompt || '';
                         }
                     }
