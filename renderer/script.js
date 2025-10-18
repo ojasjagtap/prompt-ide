@@ -187,15 +187,11 @@ function createNode(type, worldX, worldY) {
         data: {}
     };
 
-    if (type === 'system') {
+    if (type === 'prompt') {
         node.data = {
-            title: 'System',
-            promptText: ''
-        };
-    } else if (type === 'user') {
-        node.data = {
-            title: 'User',
-            promptText: ''
+            title: 'Prompt',
+            systemPrompt: '',
+            userPrompt: ''
         };
     } else if (type === 'model') {
         node.data = {
@@ -269,8 +265,7 @@ function renderNode(id) {
     nodeEl.dataset.status = node.status;
 
     // Content
-    if (node.type === 'system' || node.type === 'user') {
-        const pinLabel = node.type === 'system' ? 'instructions' : 'message';
+    if (node.type === 'prompt') {
         nodeEl.innerHTML = `
             <div class="node-header">
                 <div class="header-top">
@@ -280,14 +275,16 @@ function renderNode(id) {
                 <div class="header-bottom">
                     <div class="pin-spacer"></div>
                     <div class="pin-container pin-output-container">
-                        <span class="pin-label">${pinLabel}</span>
-                        <div class="pin pin-output" data-pin="text"></div>
+                        <span class="pin-label">prompt</span>
+                        <div class="pin pin-output" data-pin="prompt"></div>
                     </div>
                 </div>
             </div>
             <div class="node-body">
-                <div class="node-description">${node.type === 'system' ? 'System context and instructions for the model' : 'User input that will be sent to the model'}</div>
-                <div class="node-output-viewer">${node.data.promptText || ''}</div>
+                <div class="node-description">System context and instructions for the model</div>
+                <div class="node-output-viewer">${node.data.systemPrompt || ''}</div>
+                <div class="node-description" style="margin-top: 10px;">User input that will be sent to the model</div>
+                <div class="node-output-viewer">${node.data.userPrompt || ''}</div>
             </div>
         `;
     } else if (node.type === 'model') {
@@ -299,21 +296,14 @@ function renderNode(id) {
                 </div>
                 <div class="header-bottom">
                     <div class="pin-container pin-input-container">
-                        <div class="pin pin-input" data-pin="system"></div>
-                        <span class="pin-label">system</span>
+                        <div class="pin pin-input" data-pin="prompt"></div>
+                        <span class="pin-label">prompt</span>
                     </div>
                     <div class="pin-spacer"></div>
                     <div class="pin-container pin-output-container">
                         <span class="pin-label">response</span>
                         <div class="pin pin-output" data-pin="output"></div>
                     </div>
-                </div>
-                <div class="header-bottom">
-                    <div class="pin-container pin-input-container">
-                        <div class="pin pin-input" data-pin="user"></div>
-                        <span class="pin-label">user</span>
-                    </div>
-                    <div class="pin-spacer"></div>
                 </div>
                 <div class="header-bottom">
                     <div class="pin-container pin-input-container">
@@ -447,15 +437,9 @@ function isValidConnection(sourceNodeId, sourcePin, targetNodeId, targetPin) {
     if (!sourceNode || !targetNode) return false;
     if (sourceNode.id === targetNode.id) return false;
 
-    // Allow: User.text (output) -> Model.user (input)
-    if (sourceNode.type === 'user' && sourcePin === 'text' &&
-        targetNode.type === 'model' && targetPin === 'user') {
-        return true;
-    }
-
-    // Allow: System.text (output) -> Model.system (input)
-    if (sourceNode.type === 'system' && sourcePin === 'text' &&
-        targetNode.type === 'model' && targetPin === 'system') {
+    // Allow: Prompt.prompt (output) -> Model.prompt (input)
+    if (sourceNode.type === 'prompt' && sourcePin === 'prompt' &&
+        targetNode.type === 'model' && targetPin === 'prompt') {
         return true;
     }
 
@@ -630,16 +614,19 @@ function updateInspector() {
         return;
     }
 
-    if (node.type === 'system' || node.type === 'user') {
-        const fieldLabel = node.type === 'system' ? 'System Instructions' : 'User Message';
+    if (node.type === 'prompt') {
         inspectorContent.innerHTML = `
             <div class="inspector-section">
                 <label>Title</label>
                 <input type="text" id="inspectorTitle" class="inspector-input" value="${node.data.title}">
             </div>
             <div class="inspector-section">
-                <label>${fieldLabel}</label>
-                <textarea id="inspectorPromptText" class="inspector-textarea" rows="10">${node.data.promptText}</textarea>
+                <label>System Prompt</label>
+                <textarea id="inspectorSystemPrompt" class="inspector-textarea" rows="8">${node.data.systemPrompt}</textarea>
+            </div>
+            <div class="inspector-section">
+                <label>User Prompt</label>
+                <textarea id="inspectorUserPrompt" class="inspector-textarea" rows="8">${node.data.userPrompt}</textarea>
             </div>
         `;
 
@@ -648,8 +635,13 @@ function updateInspector() {
             updateNodeDisplay(node.id);
         });
 
-        document.getElementById('inspectorPromptText').addEventListener('input', (e) => {
-            node.data.promptText = e.target.value;
+        document.getElementById('inspectorSystemPrompt').addEventListener('input', (e) => {
+            node.data.systemPrompt = e.target.value;
+            updateNodeDisplay(node.id);
+        });
+
+        document.getElementById('inspectorUserPrompt').addEventListener('input', (e) => {
+            node.data.userPrompt = e.target.value;
             updateNodeDisplay(node.id);
         });
     } else if (node.type === 'model') {
@@ -1125,12 +1117,12 @@ function updateRunButton() {
 }
 
 function checkForRunnablePath() {
-    // Check if there's at least one valid path from System/User to Model or Optimize to Model
+    // Check if there's at least one valid path from Prompt to Model or Optimize to Model
     for (const edge of state.edges.values()) {
         const sourceNode = state.nodes.get(edge.sourceNodeId);
         const targetNode = state.nodes.get(edge.targetNodeId);
 
-        if ((sourceNode?.type === 'system' || sourceNode?.type === 'user' || sourceNode?.type === 'optimize') && targetNode?.type === 'model') {
+        if ((sourceNode?.type === 'prompt' || sourceNode?.type === 'optimize') && targetNode?.type === 'model') {
             return true;
         }
     }
@@ -1162,9 +1154,13 @@ async function runFlow() {
     let hasError = false;
     for (const edge of state.edges.values()) {
         const sourceNode = state.nodes.get(edge.sourceNodeId);
-        if (sourceNode?.type === 'system' || sourceNode?.type === 'user') {
-            if (!sourceNode.data.promptText || !sourceNode.data.promptText.trim()) {
-                addLog('error', `Prompt text is required for node ${sourceNode.data.title}`);
+        if (sourceNode?.type === 'prompt') {
+            // At least one of system or user prompt must be filled
+            const hasSystemPrompt = sourceNode.data.systemPrompt && sourceNode.data.systemPrompt.trim();
+            const hasUserPrompt = sourceNode.data.userPrompt && sourceNode.data.userPrompt.trim();
+
+            if (!hasSystemPrompt && !hasUserPrompt) {
+                addLog('error', `At least one prompt (System or User) is required for node ${sourceNode.data.title}`);
                 setNodeStatus(sourceNode.id, 'error');
                 hasError = true;
             }
@@ -1209,18 +1205,14 @@ async function runFlow() {
 
             const modelData = modelNodesMap.get(targetNode.id);
 
-            // Handle user input
-            if (edge.targetPin === 'user' && sourceNode?.type === 'user') {
-                modelData.userPrompt = sourceNode.data.promptText || '';
-            }
-
-            // Handle system input from system node
-            if (edge.targetPin === 'system' && sourceNode?.type === 'system') {
-                modelData.systemPrompt = sourceNode.data.promptText || '';
+            // Handle prompt input
+            if (edge.targetPin === 'prompt' && sourceNode?.type === 'prompt') {
+                modelData.systemPrompt = sourceNode.data.systemPrompt || '';
+                modelData.userPrompt = sourceNode.data.userPrompt || '';
             }
 
             // Handle system input from optimize
-            if (edge.targetPin === 'system' && sourceNode?.type === 'optimize') {
+            if (edge.targetPin === 'prompt' && sourceNode?.type === 'optimize') {
                 modelData.systemPrompt = sourceNode.data.optimizedSystemPrompt || '';
             }
         }

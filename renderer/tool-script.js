@@ -59,7 +59,7 @@ function renderToolNode(node, connectedModels) {
             <div class="header-bottom">
                 <div class="pin-spacer"></div>
                 <div class="pin-container pin-output-container">
-                    <span class="pin-label">function</span>
+                    <span class="pin-label">tool</span>
                     <div class="pin pin-output" data-pin="register"></div>
                 </div>
             </div>
