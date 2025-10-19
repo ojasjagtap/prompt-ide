@@ -321,12 +321,10 @@ function validateTool(node, addLog, getAllToolNodesFn) {
         issues.push(`JavaScript syntax error: ${err.message}`);
     }
 
-    // Log results
-    if (issues.length === 0) {
-        addLog('info', `tool_validation: node=${node.data.name} status=ok`);
-    } else {
+    // Log validation errors only
+    if (issues.length > 0) {
         issues.forEach(issue => {
-            addLog('error', `tool_validation_error: ${issue}`);
+            addLog('error', `Tool validation: ${issue}`);
         });
     }
 }

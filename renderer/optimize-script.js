@@ -1,7 +1,124 @@
 /**
  * Optimize Node Helper
  * Handles Optimize node creation, rendering, validation, and execution
+ * Uses evolutionary search with BLEU/Levenshtein metrics and hyperparameter tuning
  */
+
+// ============================================================================
+// METRICS
+// ============================================================================
+
+/**
+ * Calculate n-gram precision for BLEU score
+ */
+function getNgrams(text, n) {
+    const tokens = text.toLowerCase().split(/\s+/);
+    const ngrams = [];
+    for (let i = 0; i <= tokens.length - n; i++) {
+        ngrams.push(tokens.slice(i, i + n).join(' '));
+    }
+    return ngrams;
+}
+
+function ngramPrecision(candidate, reference, n) {
+    const candidateNgrams = getNgrams(candidate, n);
+    const referenceNgrams = getNgrams(reference, n);
+
+    if (candidateNgrams.length === 0) return 0;
+
+    let matches = 0;
+    const refCounts = {};
+    referenceNgrams.forEach(ng => {
+        refCounts[ng] = (refCounts[ng] || 0) + 1;
+    });
+
+    candidateNgrams.forEach(ng => {
+        if (refCounts[ng] > 0) {
+            matches++;
+            refCounts[ng]--;
+        }
+    });
+
+    return matches / candidateNgrams.length;
+}
+
+/**
+ * Calculate BLEU score (simplified, using unigrams through 4-grams)
+ */
+function calculateBLEU(candidate, reference) {
+    if (!candidate || !reference) return 0;
+
+    const p1 = ngramPrecision(candidate, reference, 1);
+    const p2 = ngramPrecision(candidate, reference, 2);
+    const p3 = ngramPrecision(candidate, reference, 3);
+    const p4 = ngramPrecision(candidate, reference, 4);
+
+    // Geometric mean of precisions
+    const bleu = Math.pow(p1 * p2 * p3 * p4, 0.25);
+
+    // Brevity penalty
+    const candLen = candidate.split(/\s+/).length;
+    const refLen = reference.split(/\s+/).length;
+    const bp = candLen >= refLen ? 1 : Math.exp(1 - refLen / candLen);
+
+    return bp * bleu;
+}
+
+/**
+ * Calculate Levenshtein edit distance
+ */
+function levenshteinDistance(a, b) {
+    const matrix = [];
+
+    for (let i = 0; i <= b.length; i++) {
+        matrix[i] = [i];
+    }
+
+    for (let j = 0; j <= a.length; j++) {
+        matrix[0][j] = j;
+    }
+
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1, // substitution
+                    matrix[i][j - 1] + 1,     // insertion
+                    matrix[i - 1][j] + 1      // deletion
+                );
+            }
+        }
+    }
+
+    return matrix[b.length][a.length];
+}
+
+/**
+ * Calculate normalized edit distance (0 = identical, 1 = completely different)
+ */
+function calculateEditSimilarity(candidate, reference) {
+    if (!candidate || !reference) return 0;
+    const distance = levenshteinDistance(candidate, reference);
+    const maxLen = Math.max(candidate.length, reference.length);
+    return maxLen === 0 ? 1 : 1 - (distance / maxLen);
+}
+
+/**
+ * Combined metric: weighted BLEU + edit similarity
+ */
+function evaluateOutput(candidate, reference) {
+    const bleu = calculateBLEU(candidate, reference);
+    const editSim = calculateEditSimilarity(candidate, reference);
+
+    // Weighted combination: favor BLEU for content, edit distance for structure
+    return 0.6 * bleu + 0.4 * editSim;
+}
+
+// ============================================================================
+// DATA STRUCTURE
+// ============================================================================
 
 /**
  * Initialize optimize node data structure
@@ -9,15 +126,22 @@
 function createOptimizeNodeData() {
     return {
         title: 'Optimize',
-        feedback: '',
-        optimizedSystemPrompt: ''
+        expectedOutput: '',
+        numGenerations: 5,          // Evolutionary generations
+        populationSize: 6,          // Population pool size
+        currentGeneration: 0,
+        bestPrompt: '',
+        bestScore: 0,
+        bestHyperparams: { temperature: 0.7 },
+        population: [],             // Current population
+        optimizationStatus: 'idle'
     };
 }
 
 /**
  * Render optimize node HTML
  */
-function renderOptimizeNode(node) {
+function renderOptimizeNode(node, edges, nodes) {
     return `
         <div class="node-header">
             <div class="header-top">
@@ -37,8 +161,8 @@ function renderOptimizeNode(node) {
             </div>
         </div>
         <div class="node-body">
-            <div class="node-description">Generates an improved prompt based on feedback</div>
-            <div class="node-output-viewer">${node.data.optimizedSystemPrompt || ''}</div>
+            <div class="node-description">Evolutionary prompt optimization</div>
+            <div class="node-output-viewer">${node.data.bestPrompt}</div>
         </div>
     `;
 }
@@ -46,34 +170,85 @@ function renderOptimizeNode(node) {
 /**
  * Render optimize node inspector UI
  */
-function renderOptimizeInspector(node, updateNodeDisplay) {
+function renderOptimizeInspector(node, updateNodeDisplay, edges, nodes) {
+    // Button is only disabled when optimization is running
+    const buttonDisabled = node.data.optimizationStatus === 'running';
+
     const html = `
         <div class="inspector-section">
             <label>Title</label>
             <input type="text" id="inspectorTitle" class="inspector-input" value="${node.data.title}">
         </div>
         <div class="inspector-section">
-            <label>Feedback</label>
-            <textarea id="inspectorFeedback" class="inspector-textarea" rows="6">${node.data.feedback}</textarea>
+            <label>Expected Output</label>
+            <textarea id="inspectorExpectedOutput" class="inspector-textarea" rows="6">${node.data.expectedOutput}</textarea>
         </div>
         <div class="inspector-section">
-            <label>Optimized Prompt</label>
-            <textarea id="inspectorOptimizedSystemPrompt" class="inspector-textarea" rows="10" readonly>${node.data.optimizedSystemPrompt}</textarea>
+            <label>Generations</label>
+            <input type="number" id="inspectorNumGenerations" class="inspector-input"
+                   value="${node.data.numGenerations}" min="1" max="20">
+        </div>
+        <div class="inspector-section">
+            <label>Population Size</label>
+            <input type="number" id="inspectorPopulationSize" class="inspector-input"
+                   value="${node.data.populationSize}" min="3" max="12">
+        </div>
+        <div class="inspector-section">
+            <label>Best Optimized Prompt</label>
+            <textarea id="inspectorBestPrompt" class="inspector-textarea" rows="8" readonly>${node.data.bestPrompt}</textarea>
+        </div>
+        <div class="inspector-section" style="font-size: 11px; color: #888; margin-top: -8px;">
+            Score: ${(node.data.bestScore * 100).toFixed(1)}% | Temp: ${node.data.bestHyperparams?.temperature || 0.7}
+        </div>
+        <div class="inspector-section">
+            <button id="inspectorRunOptimize" class="inspector-button"
+                    style="width: 100%; padding: 10px; background: ${buttonDisabled ? '#6c757d' : '#4a9eff'}; color: white; border: none; border-radius: 4px; cursor: ${buttonDisabled ? 'not-allowed' : 'pointer'}; font-size: 14px; opacity: ${buttonDisabled ? '0.6' : '1'};"
+                    ${buttonDisabled ? 'disabled' : ''}>
+                Run
+            </button>
         </div>
     `;
 
     // Return both HTML and event listener setup function
     return {
         html,
-        setupListeners: () => {
+        setupListeners: (context) => {
             document.getElementById('inspectorTitle').addEventListener('input', (e) => {
                 node.data.title = e.target.value;
                 updateNodeDisplay(node.id);
             });
 
-            document.getElementById('inspectorFeedback').addEventListener('input', (e) => {
-                node.data.feedback = e.target.value;
+            document.getElementById('inspectorExpectedOutput').addEventListener('input', (e) => {
+                node.data.expectedOutput = e.target.value;
+                // Update node display to reflect validation state
+                updateNodeDisplay(node.id);
             });
+
+            document.getElementById('inspectorNumGenerations').addEventListener('input', (e) => {
+                node.data.numGenerations = parseInt(e.target.value, 10) || 5;
+            });
+
+            document.getElementById('inspectorPopulationSize').addEventListener('input', (e) => {
+                node.data.populationSize = parseInt(e.target.value, 10) || 6;
+            });
+
+            // Run button in inspector
+            const runButton = document.getElementById('inspectorRunOptimize');
+            if (runButton && context && context.runOptimizeNode) {
+                runButton.addEventListener('click', async () => {
+                    // Validate before running
+                    const errors = validateOptimizeNode(node, context.edges, context.nodes);
+                    if (errors.length > 0) {
+                        // Log each error
+                        errors.forEach(error => {
+                            context.addLog('error', `Optimize: ${error}`);
+                        });
+                        return;
+                    }
+
+                    await context.runOptimizeNode(node.id);
+                });
+            }
         }
     };
 }
@@ -82,13 +257,13 @@ function renderOptimizeInspector(node, updateNodeDisplay) {
  * Validate optimize node connections
  */
 function isValidOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin) {
-    // Allow Model.output → Optimize.input
+    // Allow Model.output → Optimize.input (model response to optimize)
     if (sourceNode.type === 'model' && sourcePin === 'output' &&
         targetNode.type === 'optimize' && targetPin === 'input') {
         return true;
     }
 
-    // Allow Optimize.prompt → Model.prompt
+    // Allow Optimize.prompt → Model.prompt (optimized prompt to model)
     if (sourceNode.type === 'optimize' && sourcePin === 'prompt' &&
         targetNode.type === 'model' && targetPin === 'prompt') {
         return true;
@@ -97,133 +272,431 @@ function isValidOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin)
     return false;
 }
 
+// ============================================================================
+// EVOLUTIONARY OPERATORS
+// ============================================================================
+
 /**
- * Build meta-prompt for optimization
+ * Find connected Prompt node for optimization
  */
-function buildOptimizationPrompt(originalSystemPrompt, originalUserInput, modelOutput, feedback) {
-    return `Given the following:
-
-Original System Prompt: ${originalSystemPrompt}
-
-Original User Input: ${originalUserInput}
-
-Model Output: ${modelOutput}
-
-User Feedback: ${feedback}
-
-Create an improved version of the system prompt that addresses the user's feedback. 
-
-Output only the optimized system prompt in this exact format:
-SYSTEM: [improved system prompt here]
-
-Do not include any other text or explanations.`;
+function findConnectedPromptNode(optimizeNodeId, edges, nodes) {
+    for (const node of nodes.values()) {
+        if (node.type === 'prompt' && node.data.systemPrompt) {
+            return node;
+        }
+    }
+    return null;
 }
 
 /**
- * Find optimize nodes to execute from edges
+ * Check if Optimize node is ready to run
+ * Returns boolean
  */
-function findOptimizeNodesToRun(edges, nodes) {
-    const optimizeNodesToRun = [];
+function isOptimizeNodeReady(optimizeNode, edges, nodes) {
+    // Check 1: Prompt node with system prompt exists
+    let hasPromptNode = false;
+    for (const node of nodes.values()) {
+        if (node.type === 'prompt' && node.data.systemPrompt?.trim()) {
+            hasPromptNode = true;
+            break;
+        }
+    }
+    if (!hasPromptNode) return false;
 
+    // Check 2: Expected Output is filled
+    if (!optimizeNode.data.expectedOutput?.trim()) return false;
+
+    // Check 3: Model node exists
+    let hasModelNode = false;
+    for (const node of nodes.values()) {
+        if (node.type === 'model' && node.data.model) {
+            hasModelNode = true;
+            break;
+        }
+    }
+    if (!hasModelNode) return false;
+
+    // Check 4: If Model is connected to Optimize, it must have output
     for (const edge of edges.values()) {
-        const targetNode = nodes.get(edge.targetNodeId);
-        if (targetNode?.type === 'optimize') {
+        if (edge.targetNodeId === optimizeNode.id && edge.targetPin === 'input') {
             const sourceNode = nodes.get(edge.sourceNodeId);
-            if (sourceNode?.type === 'model') {
-                // Find the original prompt components for this model
-                let originalSystemPrompt = '';
-                let originalUserInput = '';
-
-                for (const promptEdge of edges.values()) {
-                    if (promptEdge.targetNodeId === sourceNode.id) {
-                        const inputNode = nodes.get(promptEdge.sourceNodeId);
-
-                        // Get prompts from prompt → model.prompt
-                        if (inputNode?.type === 'prompt' && promptEdge.targetPin === 'prompt') {
-                            originalSystemPrompt = inputNode.data.systemPrompt || '';
-                            originalUserInput = inputNode.data.userPrompt || '';
-                        }
-
-                        // Get system prompt from optimize → model.prompt
-                        if (inputNode?.type === 'optimize' && promptEdge.targetPin === 'prompt') {
-                            originalSystemPrompt = inputNode.data.optimizedSystemPrompt || '';
-                        }
-                    }
+            if (sourceNode?.type === 'model' && edge.sourcePin === 'output') {
+                // Model is connected - check if it has output
+                if (!sourceNode.data.output || !sourceNode.data.output.trim()) {
+                    return false;
                 }
-
-                optimizeNodesToRun.push({
-                    optimizeNode: targetNode,
-                    originalSystemPrompt: originalSystemPrompt,
-                    originalUserInput: originalUserInput,
-                    modelOutput: sourceNode.data.output,
-                    modelId: sourceNode.data.model
-                });
             }
         }
     }
 
-    return optimizeNodesToRun;
+    // All checks passed
+    return true;
 }
 
 /**
- * Execute a single optimize node
+ * Validate Optimize node and return error messages for what's missing
+ * Returns array of error messages (empty if ready)
+ */
+function validateOptimizeNode(optimizeNode, edges, nodes) {
+    const errors = [];
+
+    // Check 1: Prompt node with system prompt exists
+    let hasPromptNode = false;
+    for (const node of nodes.values()) {
+        if (node.type === 'prompt' && node.data.systemPrompt?.trim()) {
+            hasPromptNode = true;
+            break;
+        }
+    }
+    if (!hasPromptNode) {
+        errors.push('Missing Prompt node with system prompt');
+    }
+
+    // Check 2: Expected Output is filled
+    if (!optimizeNode.data.expectedOutput?.trim()) {
+        errors.push('Expected Output is required');
+    }
+
+    // Check 3: Model node exists
+    let hasModelNode = false;
+    for (const node of nodes.values()) {
+        if (node.type === 'model' && node.data.model) {
+            hasModelNode = true;
+            break;
+        }
+    }
+    if (!hasModelNode) {
+        errors.push('Missing Model node');
+    }
+
+    // Check 4: If Model is connected to Optimize, it must have output
+    for (const edge of edges.values()) {
+        if (edge.targetNodeId === optimizeNode.id && edge.targetPin === 'input') {
+            const sourceNode = nodes.get(edge.sourceNodeId);
+            if (sourceNode?.type === 'model' && edge.sourcePin === 'output') {
+                // Model is connected - check if it has output
+                if (!sourceNode.data.output || !sourceNode.data.output.trim()) {
+                    errors.push('Connected Model node has no output');
+                }
+            }
+        }
+    }
+
+    return errors;
+}
+
+/**
+ * Mutate a prompt using LLM (evolutionary mutation)
+ */
+function buildMutationPrompt(prompt) {
+    return `You are a prompt engineering expert. Create a meaningful variation of the following system prompt.
+
+Original Prompt:
+${prompt}
+
+Generate ONE improved variation that:
+- Maintains the core intent
+- Uses different phrasing or structure
+- Adds clarity or specificity
+- Could potentially improve output quality
+
+Output ONLY the new prompt, without explanations. Start directly with the prompt content.`;
+}
+
+/**
+ * Crossover two prompts (combine elements from parents)
+ */
+function buildCrossoverPrompt(prompt1, prompt2) {
+    return `You are a prompt engineering expert. Combine the best elements from these two prompts into a single, superior prompt.
+
+Prompt A:
+${prompt1}
+
+Prompt B:
+${prompt2}
+
+Create a hybrid prompt that:
+- Takes the best aspects from both
+- Maintains coherence and clarity
+- Is more effective than either parent
+
+Output ONLY the hybrid prompt, without explanations.`;
+}
+
+// ============================================================================
+// MAIN OPTIMIZATION ALGORITHM
+// ============================================================================
+
+/**
+ * Test a prompt with hyperparameter tuning and metric-based scoring
+ */
+async function evaluatePrompt(
+    prompt,
+    testInput,
+    expectedOutput,
+    temperature,
+    modelId,
+    provider,
+    callModelStreaming,
+    signal
+) {
+    const testPrompt = `System: ${prompt}\n\nUser: ${testInput}`;
+    let output = '';
+
+    await callModelStreaming(
+        testPrompt,
+        modelId,
+        temperature,
+        500,
+        (chunk) => { output += chunk; },
+        signal,
+        null,
+        provider
+    );
+
+    // Score using BLEU + Levenshtein
+    const score = evaluateOutput(output, expectedOutput);
+    return { score, output };
+}
+
+/**
+ * Execute evolutionary optimization with hyperparameter tuning
  */
 async function executeOptimizeNode(
     optimizeNode,
-    originalSystemPrompt,
-    originalUserInput,
-    modelOutput,
-    modelId,
+    edges,
+    nodes,
     callModelStreaming,
     updateNodeDisplay,
     setNodeStatus,
     addLog,
-    signal,
-    selectedNodeId
+    signal
 ) {
-    if (!optimizeNode.data.feedback.trim()) {
-        addLog('error', `Feedback is required for Optimize node ${optimizeNode.data.title}`);
+    // ========== PRECONDITIONS ==========
+
+    const promptNode = findConnectedPromptNode(optimizeNode.id, edges, nodes);
+
+    if (!promptNode) {
+        addLog('error', `Optimize: No Prompt node found`);
         setNodeStatus(optimizeNode.id, 'error');
+        optimizeNode.data.optimizationStatus = 'error';
+        updateNodeDisplay(optimizeNode.id);
         return;
     }
-    
+
+    if (!promptNode.data.systemPrompt?.trim()) {
+        addLog('error', `Optimize: Prompt node has no system prompt`);
+        setNodeStatus(optimizeNode.id, 'error');
+        optimizeNode.data.optimizationStatus = 'error';
+        updateNodeDisplay(optimizeNode.id);
+        return;
+    }
+
+    if (!optimizeNode.data.expectedOutput?.trim()) {
+        addLog('error', `Optimize: Expected Output is required`);
+        setNodeStatus(optimizeNode.id, 'error');
+        optimizeNode.data.optimizationStatus = 'error';
+        updateNodeDisplay(optimizeNode.id);
+        return;
+    }
+
+    // Find model for optimization
+    let optimizationModel = null;
+    for (const node of nodes.values()) {
+        if (node.type === 'model' && node.data.model) {
+            optimizationModel = {
+                modelId: node.data.model,
+                provider: node.data.provider || 'ollama'
+            };
+            break;
+        }
+    }
+
+    if (!optimizationModel) {
+        addLog('error', `Optimize: No Model node found`);
+        setNodeStatus(optimizeNode.id, 'error');
+        optimizeNode.data.optimizationStatus = 'error';
+        updateNodeDisplay(optimizeNode.id);
+        return;
+    }
+
+    // ========== INITIALIZATION ==========
+
     setNodeStatus(optimizeNode.id, 'running');
-    addLog('info', `node_started: ${optimizeNode.data.title} (${optimizeNode.id})`);
-    
-    const metaPrompt = buildOptimizationPrompt(originalSystemPrompt, originalUserInput, modelOutput, optimizeNode.data.feedback);
-    
+    optimizeNode.data.optimizationStatus = 'running';
+    optimizeNode.data.population = [];
+    optimizeNode.data.currentGeneration = 0;
+    optimizeNode.data.bestScore = 0;
+    updateNodeDisplay(optimizeNode.id);
+
+    const basePrompt = promptNode.data.systemPrompt;
+    const testInput = promptNode.data.userPrompt || "Generate a response.";
+    const expectedOutput = optimizeNode.data.expectedOutput;
+    const popSize = optimizeNode.data.populationSize;
+    const numGens = optimizeNode.data.numGenerations;
+
+    addLog('info', `Optimize: Starting ${numGens} generations, population ${popSize}`);
+
     try {
-        let fullResponse = '';
-        await callModelStreaming(
-            metaPrompt,
-            modelId,
-            0.7,
-            100,
-            (chunk) => {
-                fullResponse += chunk;
-                // Parse the response to extract system prompt
-                const systemMatch = fullResponse.match(/SYSTEM:\s*([\s\S]*?)$/);
-                
-                if (systemMatch) {
-                    optimizeNode.data.optimizedSystemPrompt = systemMatch[1].trim();
+        // Hyperparameter candidates to test
+        const tempCandidates = [0.3, 0.5, 0.7, 0.9, 1.1];
+
+        // ========== INITIAL POPULATION ==========
+
+        addLog('info', `Optimize: Creating initial population`);
+
+        const population = [{ prompt: basePrompt, score: 0, temp: 0.7 }];
+
+        // Generate popSize-1 mutations of base prompt
+        for (let i = 1; i < popSize; i++) {
+            if (signal?.aborted) throw new Error('Cancelled');
+
+            const mutationPrompt = buildMutationPrompt(basePrompt);
+            let mutated = '';
+
+            await callModelStreaming(
+                mutationPrompt,
+                optimizationModel.modelId,
+                0.8,
+                800,
+                (chunk) => { mutated += chunk; },
+                signal,
+                null,
+                optimizationModel.provider
+            );
+
+            population.push({ prompt: mutated.trim(), score: 0, temp: 0.7 });
+        }
+
+        // ========== EVOLUTIONARY LOOP ==========
+
+        for (let gen = 0; gen < numGens; gen++) {
+            if (signal?.aborted) throw new Error('Cancelled');
+
+            optimizeNode.data.currentGeneration = gen + 1;
+            updateNodeDisplay(optimizeNode.id);
+
+            addLog('info', `Optimize: Generation ${gen + 1}/${numGens}`);
+
+            // Evaluate each candidate with hyperparameter tuning
+            for (const candidate of population) {
+                if (signal?.aborted) throw new Error('Cancelled');
+
+                let bestScore = 0;
+                let bestTemp = 0.7;
+
+                // Test with multiple temperatures
+                for (const temp of tempCandidates) {
+                    const { score } = await evaluatePrompt(
+                        candidate.prompt,
+                        testInput,
+                        expectedOutput,
+                        temp,
+                        optimizationModel.modelId,
+                        optimizationModel.provider,
+                        callModelStreaming,
+                        signal
+                    );
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestTemp = temp;
+                    }
                 }
-                
+
+                candidate.score = bestScore;
+                candidate.temp = bestTemp;
+            }
+
+            // Sort by score (descending)
+            population.sort((a, b) => b.score - a.score);
+
+            const best = population[0];
+            addLog('info', `Optimize: Best score ${(best.score * 100).toFixed(1)}% (temp ${best.temp})`);
+
+            // Update global best
+            if (best.score > optimizeNode.data.bestScore) {
+                optimizeNode.data.bestScore = best.score;
+                optimizeNode.data.bestPrompt = best.prompt;
+                optimizeNode.data.bestHyperparams = { temperature: best.temp };
                 updateNodeDisplay(optimizeNode.id);
-                if (selectedNodeId === optimizeNode.id) {
-                    const systemEl = document.getElementById('inspectorOptimizedSystemPrompt');
-                    if (systemEl) systemEl.value = optimizeNode.data.optimizedSystemPrompt;
+            }
+
+            // Stop if we're at the last generation
+            if (gen === numGens - 1) break;
+
+            // ========== SELECTION & REPRODUCTION ==========
+
+            // Keep top 50%
+            const survivors = population.slice(0, Math.ceil(popSize / 2));
+
+            const nextGen = [...survivors];
+
+            // Fill rest with mutations and crossovers
+            while (nextGen.length < popSize) {
+                if (signal?.aborted) throw new Error('Cancelled');
+
+                if (Math.random() < 0.7 && survivors.length > 1) {
+                    // Crossover (30% of offspring)
+                    const parent1 = survivors[Math.floor(Math.random() * survivors.length)];
+                    const parent2 = survivors[Math.floor(Math.random() * survivors.length)];
+
+                    const crossoverPrompt = buildCrossoverPrompt(
+                        parent1.prompt,
+                        parent2.prompt
+                    );
+
+                    let offspring = '';
+                    await callModelStreaming(
+                        crossoverPrompt,
+                        optimizationModel.modelId,
+                        0.7,
+                        800,
+                        (chunk) => { offspring += chunk; },
+                        signal,
+                        null,
+                        optimizationModel.provider
+                    );
+
+                    nextGen.push({ prompt: offspring.trim(), score: 0, temp: 0.7 });
+                } else {
+                    // Mutation (70% of offspring)
+                    const parent = survivors[Math.floor(Math.random() * survivors.length)];
+                    const mutationPrompt = buildMutationPrompt(parent.prompt);
+
+                    let mutated = '';
+                    await callModelStreaming(
+                        mutationPrompt,
+                        optimizationModel.modelId,
+                        0.8,
+                        800,
+                        (chunk) => { mutated += chunk; },
+                        signal,
+                        null,
+                        optimizationModel.provider
+                    );
+
+                    nextGen.push({ prompt: mutated.trim(), score: 0, temp: 0.7 });
                 }
-            },
-            signal
-        );
-        
+            }
+
+            population.length = 0;
+            population.push(...nextGen);
+        }
+
+        // ========== FINALIZATION ==========
+
+        optimizeNode.data.optimizationStatus = 'success';
         setNodeStatus(optimizeNode.id, 'success');
-        addLog('info', `node_completed: ${optimizeNode.data.title} (${optimizeNode.id})`);
+        updateNodeDisplay(optimizeNode.id);
+
+        addLog('info', `Optimize: Complete with ${(optimizeNode.data.bestScore * 100).toFixed(1)}% score (temp ${optimizeNode.data.bestHyperparams.temperature})`);
+
     } catch (error) {
         setNodeStatus(optimizeNode.id, 'error');
-        optimizeNode.data.optimizedSystemPrompt = `Error: ${error.message}`;
+        optimizeNode.data.optimizationStatus = 'error';
         updateNodeDisplay(optimizeNode.id);
-        addLog('error', `node_error: ${optimizeNode.data.title} - ${error.message}`);
+        addLog('error', `Optimize error: ${error.message}`);
     }
 }
 
@@ -232,6 +705,7 @@ module.exports = {
     renderOptimizeNode,
     renderOptimizeInspector,
     isValidOptimizeConnection,
-    findOptimizeNodesToRun,
+    isOptimizeNodeReady,
+    validateOptimizeNode,
     executeOptimizeNode
 };
