@@ -9,7 +9,6 @@ const {
     renderOptimizeNode,
     renderOptimizeInspector,
     isValidOptimizeConnection,
-    findOptimizeNodesToRun,
     executeOptimizeNode
 } = require('./optimize-script');
 const {
@@ -66,6 +65,8 @@ const state = {
     isRunning: false,
     currentRunId: null,
     runAbortController: null,
+    optimizationAbortController: null,
+    isOptimizing: false,
 
     // Logs
     logs: [],
@@ -332,7 +333,7 @@ function renderNode(id) {
             </div>
         `;
     } else if (node.type === 'optimize') {
-        nodeEl.innerHTML = renderOptimizeNode(node);
+        nodeEl.innerHTML = renderOptimizeNode(node, state.edges, state.nodes);
     } else if (node.type === 'tool') {
         const connectedModels = findConnectedModels(node.id, state.edges, state.nodes);
         nodeEl.innerHTML = renderToolNode(node, connectedModels);
@@ -734,9 +735,16 @@ function updateInspector() {
             updateNodeDisplay(node.id);
         });
     } else if (node.type === 'optimize') {
-        const inspector = renderOptimizeInspector(node, updateNodeDisplay);
+        const inspector = renderOptimizeInspector(node, updateNodeDisplay, state.edges, state.nodes);
         inspectorContent.innerHTML = inspector.html;
-        inspector.setupListeners();
+        inspector.setupListeners({
+            edges: state.edges,
+            nodes: state.nodes,
+            callModelStreaming,
+            setNodeStatus,
+            addLog,
+            runOptimizeNode
+        });
     } else if (node.type === 'tool') {
         const inspector = renderToolInspector(node, updateNodeDisplay, addLog);
         inspectorContent.innerHTML = inspector.html;
@@ -1097,7 +1105,7 @@ function showTooltip(message, x, y) {
 function updateRunButton() {
     const runButton = document.getElementById('runButton');
     const hasRunnablePath = checkForRunnablePath();
-    runButton.disabled = state.isRunning || !hasRunnablePath;
+    runButton.disabled = state.isRunning || state.isOptimizing || !hasRunnablePath;
 }
 
 function checkForRunnablePath() {
@@ -1123,7 +1131,10 @@ async function runFlow() {
     document.getElementById('statusChip').textContent = 'Running';
     document.getElementById('statusChip').className = 'status-chip status-running';
 
-    addLog('info', 'run_started');
+    // Disable optimize buttons during flow run
+    updateOptimizeButtons();
+
+    addLog('info', 'Flow run started');
 
     // Reset all node statuses
     state.nodes.forEach((node) => {
@@ -1134,10 +1145,13 @@ async function runFlow() {
         }
     });
 
-    // Validate: check for empty prompts and missing models
+    // Validate: check for empty prompts, missing models, and incomplete optimize nodes
     let hasError = false;
     for (const edge of state.edges.values()) {
         const sourceNode = state.nodes.get(edge.sourceNodeId);
+        const targetNode = state.nodes.get(edge.targetNodeId);
+
+        // Validate Prompt nodes
         if (sourceNode?.type === 'prompt') {
             // At least one of system or user prompt must be filled
             const hasSystemPrompt = sourceNode.data.systemPrompt && sourceNode.data.systemPrompt.trim();
@@ -1150,11 +1164,40 @@ async function runFlow() {
             }
         }
 
-        const modelNode = state.nodes.get(edge.targetNodeId);
-        if (modelNode?.type === 'model') {
-            if (!modelNode.data.model || modelNode.data.model.trim() === '') {
-                addLog('error', `Model must be selected for node ${modelNode.data.title} (${modelNode.id})`);
-                setNodeStatus(modelNode.id, 'error');
+        // Validate Model nodes
+        if (targetNode?.type === 'model') {
+            if (!targetNode.data.model || targetNode.data.model.trim() === '') {
+                addLog('error', `Model must be selected for ${targetNode.data.title}`);
+                setNodeStatus(targetNode.id, 'error');
+                hasError = true;
+            }
+        }
+
+        // Validate Optimize nodes that will run in the flow
+        if (sourceNode?.type === 'model' &&
+            targetNode?.type === 'optimize' &&
+            edge.sourcePin === 'output' &&
+            edge.targetPin === 'input') {
+
+            // Check if Optimize node has required Expected Output
+            if (!targetNode.data.expectedOutput || !targetNode.data.expectedOutput.trim()) {
+                addLog('error', `Expected Output is required for ${targetNode.data.title}`);
+                setNodeStatus(targetNode.id, 'error');
+                hasError = true;
+            }
+
+            // Also check if there's a Prompt node in the graph
+            let hasPromptNode = false;
+            for (const node of state.nodes.values()) {
+                if (node.type === 'prompt' && node.data.systemPrompt) {
+                    hasPromptNode = true;
+                    break;
+                }
+            }
+
+            if (!hasPromptNode) {
+                addLog('error', `${targetNode.data.title} requires a Prompt node with system prompt`);
+                setNodeStatus(targetNode.id, 'error');
                 hasError = true;
             }
         }
@@ -1197,7 +1240,7 @@ async function runFlow() {
 
             // Handle system input from optimize
             if (edge.targetPin === 'prompt' && sourceNode?.type === 'optimize') {
-                modelData.systemPrompt = sourceNode.data.optimizedSystemPrompt || '';
+                modelData.systemPrompt = sourceNode.data.bestPrompt || '';
             }
         }
     }
@@ -1241,19 +1284,11 @@ async function runFlow() {
         }
 
         setNodeStatus(modelNode.id, 'running');
-        addLog('info', `node_started: ${modelNode.data.title} (${modelNode.id})`);
+        addLog('info', `Running ${modelNode.data.title}`);
 
         // Build tools catalog for this model
         const registeredTools = findRegisteredTools(modelNode.id, state.edges, state.nodes);
         const toolsCatalog = buildToolsCatalog(registeredTools);
-
-        // if (toolsCatalog.length > 0) {
-        //     addLog('info', `Model has ${toolsCatalog.length} registered tool(s): ${toolsCatalog.map(t => t.name).join(', ')}`);
-        //     // Log the full catalog for debugging
-        //     toolsCatalog.forEach(tool => {
-        //         addLog('info', `  - ${tool.name}: ${tool.description}`);
-        //     });
-        // }
 
         const startTime = Date.now();
 
@@ -1280,44 +1315,71 @@ async function runFlow() {
 
             const duration = ((Date.now() - startTime) / 1000).toFixed(2);
             setNodeStatus(modelNode.id, 'success');
-            addLog('info', `node_completed: ${modelNode.data.title} (${modelNode.id}) in ${duration}s`);
+            addLog('info', `${modelNode.data.title} completed in ${duration}s`);
+
+            // Update connected Optimize nodes to enable their Run buttons
+            for (const edge of state.edges.values()) {
+                if (edge.sourceNodeId === modelNode.id && edge.sourcePin === 'output') {
+                    const targetNode = state.nodes.get(edge.targetNodeId);
+                    if (targetNode?.type === 'optimize') {
+                        updateNodeDisplay(targetNode.id);
+                        // Also update inspector if this Optimize node is selected
+                        if (state.selectedNodeId === targetNode.id) {
+                            updateInspector();
+                        }
+                    }
+                }
+            }
         } catch (error) {
             if (error.name === 'AbortError') {
                 setNodeStatus(modelNode.id, 'error');
                 updateNodeDisplay(modelNode.id);
-                addLog('warn', 'run_canceled');
+                addLog('warn', 'Flow run canceled');
                 break;
             } else {
                 setNodeStatus(modelNode.id, 'error');
                 updateNodeDisplay(modelNode.id);
-                addLog('error', `node_error: ${modelNode.data.title} (${modelNode.id}) - ${error.message}`);
+                addLog('error', `${modelNode.data.title} error: ${error.message}`);
             }
         }
     }
 
-    // Execute optimize nodes
+    // Run Optimize nodes that are connected to Model outputs
     const optimizeNodesToRun = findOptimizeNodesToRun(state.edges, state.nodes);
 
-    for (const { optimizeNode, originalSystemPrompt, originalUserInput, modelOutput, modelId } of optimizeNodesToRun) {
+    for (const optimizeNode of optimizeNodesToRun) {
         if (state.runAbortController.signal.aborted) break;
-        
-        await executeOptimizeNode(
-            optimizeNode,
-            originalSystemPrompt,
-            originalUserInput,
-            modelOutput,
-            modelId,
-            callModelStreaming,
-            updateNodeDisplay,
-            setNodeStatus,
-            addLog,
-            state.runAbortController.signal,
-            state.selectedNodeId
-        );
+
+        addLog('info', `Running ${optimizeNode.data.title}`);
+
+        try {
+            await executeOptimizeNode(
+                optimizeNode,
+                state.edges,
+                state.nodes,
+                callModelStreaming,
+                updateNodeDisplay,
+                setNodeStatus,
+                addLog,
+                state.runAbortController.signal
+            );
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                addLog('warn', 'Optimization canceled');
+                break;
+            } else {
+                addLog('error', `Optimize error: ${error.message}`);
+            }
+        }
+
+        // Update inspector if this optimize node is selected
+        if (state.selectedNodeId === optimizeNode.id) {
+            updateInspector();
+        }
     }
 
     if (!state.runAbortController.signal.aborted) {
-        addLog('info', 'run_completed');
+        addLog('info', 'Flow run completed');
     }
 
     state.isRunning = false;
@@ -1327,11 +1389,103 @@ async function runFlow() {
     document.getElementById('statusChip').textContent = 'Idle';
     document.getElementById('statusChip').className = 'status-chip status-idle';
     updateRunButton();
+
+    // Re-enable optimize buttons
+    updateOptimizeButtons();
 }
 
 function cancelRun() {
     if (state.runAbortController) {
         state.runAbortController.abort();
+    }
+    if (state.optimizationAbortController) {
+        state.optimizationAbortController.abort();
+    }
+}
+
+/**
+ * Find Optimize nodes connected to Model outputs
+ */
+function findOptimizeNodesToRun(edges, nodes) {
+    const optimizeNodes = [];
+
+    for (const edge of edges.values()) {
+        const sourceNode = nodes.get(edge.sourceNodeId);
+        const targetNode = nodes.get(edge.targetNodeId);
+
+        // Find Model → Optimize connections
+        if (sourceNode?.type === 'model' &&
+            targetNode?.type === 'optimize' &&
+            edge.sourcePin === 'output' &&
+            edge.targetPin === 'input') {
+            optimizeNodes.push(targetNode);
+        }
+    }
+
+    return optimizeNodes;
+}
+
+/**
+ * Run a single Optimize node
+ */
+async function runOptimizeNode(nodeId) {
+    const optimizeNode = state.nodes.get(nodeId);
+    if (!optimizeNode || optimizeNode.type !== 'optimize') return;
+
+    // Disable run buttons
+    state.isOptimizing = true;
+    updateOptimizeButtons();
+    updateRunButton();
+
+    // Enable cancel button
+    document.getElementById('cancelButton').disabled = false;
+
+    // Create abort controller
+    state.optimizationAbortController = new AbortController();
+
+    try {
+        await executeOptimizeNode(
+            optimizeNode,
+            state.edges,
+            state.nodes,
+            callModelStreaming,
+            updateNodeDisplay,
+            setNodeStatus,
+            addLog,
+            state.optimizationAbortController.signal
+        );
+    } finally {
+        // Re-enable run buttons
+        state.isOptimizing = false;
+        state.optimizationAbortController = null;
+        updateOptimizeButtons();
+        updateRunButton();
+
+        // Disable cancel if nothing is running
+        if (!state.isRunning) {
+            document.getElementById('cancelButton').disabled = true;
+        }
+
+        // Update inspector if this node is selected
+        if (state.selectedNodeId === nodeId) {
+            updateInspector();
+        }
+    }
+}
+
+/**
+ * Update Optimize node button states
+ */
+function updateOptimizeButtons() {
+    const disabled = state.isRunning || state.isOptimizing;
+
+    // Update inspector button if Optimize node is selected
+    const inspectorBtn = document.getElementById('inspectorRunOptimize');
+    if (inspectorBtn) {
+        inspectorBtn.disabled = disabled;
+        inspectorBtn.style.background = disabled ? '#6c757d' : '#4a9eff';
+        inspectorBtn.style.opacity = disabled ? '0.6' : '1';
+        inspectorBtn.style.cursor = disabled ? 'not-allowed' : 'pointer';
     }
 }
 
@@ -1479,15 +1633,8 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
             break;
         }
 
-        // Log detected tool calls with more detail
-        addLog('info', `Model requested ${pendingToolCalls.length} tool call(s): ${pendingToolCalls.map(tc => tc.name).join(', ')}`);
-
-        // Warn if there are duplicate tool calls
-        // const toolNames = pendingToolCalls.map(tc => tc.name);
-        // const duplicates = toolNames.filter((name, index) => toolNames.indexOf(name) !== index);
-        // if (duplicates.length > 0) {
-        //     addLog('warn', `Duplicate tool calls detected: ${duplicates.join(', ')} - model may be confused`);
-        // }
+        // Log detected tool calls
+        addLog('info', `Calling tool${pendingToolCalls.length > 1 ? 's' : ''}: ${pendingToolCalls.map(tc => tc.name).join(', ')}`);
 
         // Execute tool calls
         let hasToolError = false;
@@ -1501,7 +1648,7 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
             );
 
             if (!toolNode) {
-                addLog('error', `tool_call_failed: Tool "${name}" not found`);
+                addLog('error', `Tool "${name}" not found`);
                 hasToolError = true;
                 break;
             }
@@ -1509,14 +1656,12 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
             // Validate arguments against schema
             const validationError = validateToolArguments(args, toolNode.data.parametersSchema);
             if (validationError) {
-                addLog('error', `tool_call_failed: ${name} - ${validationError}`);
-                // addLog('error', `Invalid arguments provided: ${JSON.stringify(args)}`);
+                addLog('error', `${name}: ${validationError}`);
                 hasToolError = true;
                 break;
             }
 
             // Execute tool
-            // addLog('info', `tool_call_started: ${name} with args ${JSON.stringify(args)}`);
             const startTime = Date.now();
 
             try {
@@ -1530,24 +1675,13 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
                 const duration = ((Date.now() - startTime) / 1000).toFixed(2);
 
                 if (normalized.ok) {
-                    // Log the actual result returned by the tool
-                    // let resultPreview = '';
-                    if (normalized.kind === 'text') {
-                        // resultPreview = normalized.result.length > 200
-                        //     ? normalized.result.substring(0, 200) + '...'
-                        //     : normalized.result;
-                        addLog('info', `tool_call_succeeded: ${name} (${duration}s, kind=${normalized.kind})`);
-                        // addLog('info', `tool_result: "${resultPreview}"`);
-                    } else if (normalized.kind === 'json') {
-                        // resultPreview = JSON.stringify(normalized.result).substring(0, 200);
-                        addLog('info', `tool_call_succeeded: ${name} (${duration}s, kind=${normalized.kind})`);
-                        // addLog('info', `tool_result: ${resultPreview}`);
-                    } else if (normalized.kind === 'bytes') {
-                        addLog('info', `tool_call_succeeded: ${name} (${duration}s, kind=${normalized.kind}, bytes=${normalized.result.length})`);
-                        // addLog('info', `tool_result: [Base64 data, ${normalized.result.length} chars]`);
+                    if (normalized.kind === 'bytes') {
+                        addLog('info', `${name} completed in ${duration}s (${normalized.result.length} bytes)`);
+                    } else {
+                        addLog('info', `${name} completed in ${duration}s`);
                     }
                 } else {
-                    addLog('error', `tool_call_failed: ${name} - ${normalized.error.message}`);
+                    addLog('error', `${name}: ${normalized.error.message}`);
                     hasToolError = true;
                     break;
                 }
@@ -1562,7 +1696,7 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
                 });
             } catch (error) {
                 const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-                addLog('error', `tool_call_failed: ${name} - ${error.message} (${duration}s)`);
+                addLog('error', `${name}: ${error.message} (${duration}s)`);
                 hasToolError = true;
                 break;
             }
@@ -1570,7 +1704,6 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
 
         // If tool execution failed, stop and mark model as error
         if (hasToolError) {
-            addLog('error', 'Tool execution failed - stopping run');
             throw new Error('Tool execution failed');
         }
 
@@ -1689,9 +1822,8 @@ async function saveOpenAISettings() {
         await updateOpenAIStatus();
 
         // Try to fetch models to validate the key
-        addLog('info', 'Validating OpenAI API key...');
         const models = await providerRegistry.listModels('openai');
-        addLog('info', `OpenAI configured successfully with ${models.length} models available`);
+        addLog('info', `OpenAI configured with ${models.length} models`);
 
         // Refresh models in state if a model node is using OpenAI
         for (const node of state.nodes.values()) {

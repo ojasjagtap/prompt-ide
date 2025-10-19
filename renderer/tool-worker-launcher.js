@@ -41,7 +41,7 @@ async function executeToolInWorker({ code, args, addLog, signal }) {
             if (!isKilled) {
                 isKilled = true;
                 killWorkerProcess(worker);
-                addLog('error', 'worker_timeout: Tool execution exceeded 30s timeout');
+                addLog('error', 'Tool execution timeout (30s limit)');
                 reject(new Error('Tool execution timeout'));
             }
         }, timeoutMs);
@@ -52,7 +52,7 @@ async function executeToolInWorker({ code, args, addLog, signal }) {
                 if (!isKilled) {
                     isKilled = true;
                     killWorkerProcess(worker);
-                    addLog('warn', 'worker_killed: Tool execution canceled');
+                    addLog('warn', 'Tool execution canceled');
                     reject(new Error('Tool execution canceled'));
                 }
             });
@@ -67,7 +67,7 @@ async function executeToolInWorker({ code, args, addLog, signal }) {
                 if (!isKilled) {
                     isKilled = true;
                     killWorkerProcess(worker);
-                    addLog('error', 'output_too_large: Tool output exceeded 5MB limit');
+                    addLog('error', 'Tool output exceeded 5MB limit');
                     reject(new Error('Tool output too large'));
                 }
             }
@@ -96,7 +96,7 @@ async function executeToolInWorker({ code, args, addLog, signal }) {
                         : JSON.stringify(result.result);
 
                     if (resultStr.length > maxOutputBytes) {
-                        addLog('warn', 'output_too_large: Tool result truncated to 5MB');
+                        addLog('warn', 'Tool output truncated to 5MB');
 
                         if (typeof result.result === 'string') {
                             result.result = result.result.substring(0, maxOutputBytes);
