@@ -68,6 +68,8 @@ const state = {
     runAbortController: null,
     optimizationAbortController: null,
     isOptimizing: false,
+    modelRunAbortController: null,
+    isRunningModelNode: false,
 
     // Logs
     logs: [],
@@ -678,6 +680,9 @@ function updateInspector() {
             }
         };
 
+        // Determine if run button should be disabled
+        const buttonDisabled = state.isRunning || state.isOptimizing || state.isRunningModelNode;
+
         inspectorContent.innerHTML = `
             <div class="inspector-section">
                 <label>Title</label>
@@ -706,6 +711,13 @@ function updateInspector() {
             <div class="inspector-section">
                 <label>Output</label>
                 <textarea id="inspectorOutput" class="inspector-textarea" rows="10" readonly>${node.data.output}</textarea>
+            </div>
+            <div class="inspector-section">
+                <button id="inspectorRunModel" class="inspector-button"
+                        style="width: 100%; padding: 10px; background: ${buttonDisabled ? '#6c757d' : '#4a9eff'}; color: white; border: none; border-radius: 4px; cursor: ${buttonDisabled ? 'not-allowed' : 'pointer'}; font-size: 14px; opacity: ${buttonDisabled ? '0.6' : '1'};"
+                        ${buttonDisabled ? 'disabled' : ''}>
+                    Run
+                </button>
             </div>
         `;
 
@@ -753,6 +765,11 @@ function updateInspector() {
         document.getElementById('inspectorMaxTokens').addEventListener('input', (e) => {
             node.data.maxTokens = parseInt(e.target.value);
             updateNodeDisplay(node.id);
+        });
+
+        // Run button
+        document.getElementById('inspectorRunModel').addEventListener('click', async () => {
+            await runModelNode(node.id);
         });
     } else if (node.type === 'optimize') {
         const inspector = renderOptimizeInspector(node, updateNodeDisplay, state.edges, state.nodes);
@@ -1133,7 +1150,7 @@ function showTooltip(message, x, y) {
 function updateRunButton() {
     const runButton = document.getElementById('runButton');
     const hasRunnablePath = checkForRunnablePath();
-    runButton.disabled = state.isRunning || state.isOptimizing || !hasRunnablePath;
+    runButton.disabled = state.isRunning || state.isOptimizing || state.isRunningModelNode || !hasRunnablePath;
 }
 
 function checkForRunnablePath() {
@@ -1159,8 +1176,9 @@ async function runFlow() {
     document.getElementById('statusChip').textContent = 'Running';
     document.getElementById('statusChip').className = 'status-chip status-running';
 
-    // Disable optimize buttons during flow run
+    // Disable optimize and model buttons during flow run
     updateOptimizeButtons();
+    updateModelButtons();
 
     addLog('info', 'Flow run started');
 
@@ -1418,8 +1436,9 @@ async function runFlow() {
     document.getElementById('statusChip').className = 'status-chip status-idle';
     updateRunButton();
 
-    // Re-enable optimize buttons
+    // Re-enable optimize and model buttons
     updateOptimizeButtons();
+    updateModelButtons();
 }
 
 function cancelRun() {
@@ -1428,6 +1447,9 @@ function cancelRun() {
     }
     if (state.optimizationAbortController) {
         state.optimizationAbortController.abort();
+    }
+    if (state.modelRunAbortController) {
+        state.modelRunAbortController.abort();
     }
 }
 
@@ -1502,13 +1524,162 @@ async function runOptimizeNode(nodeId) {
 }
 
 /**
+ * Run a single Model node independently
+ */
+async function runModelNode(nodeId) {
+    const modelNode = state.nodes.get(nodeId);
+    if (!modelNode || modelNode.type !== 'model') return;
+
+    // Find connected Prompt node
+    let promptNode = null;
+    for (const edge of state.edges.values()) {
+        if (edge.targetNodeId === nodeId && edge.targetPin === 'prompt') {
+            const sourceNode = state.nodes.get(edge.sourceNodeId);
+            if (sourceNode?.type === 'prompt') {
+                promptNode = sourceNode;
+                break;
+            } else if (sourceNode?.type === 'optimize') {
+                // If connected to optimize node, we can't run independently
+                addLog('error', `Cannot run ${modelNode.data.title} independently when connected to Optimize node`);
+                return;
+            }
+        }
+    }
+
+    // Validate prompt node
+    if (!promptNode) {
+        addLog('error', `${modelNode.data.title} is not connected to a Prompt node`);
+        return;
+    }
+
+    const hasSystemPrompt = promptNode.data.systemPrompt && promptNode.data.systemPrompt.trim();
+    const hasUserPrompt = promptNode.data.userPrompt && promptNode.data.userPrompt.trim();
+
+    if (!hasSystemPrompt && !hasUserPrompt) {
+        addLog('error', `At least one prompt is required for node ${promptNode.data.title}`);
+        setNodeStatus(promptNode.id, 'error');
+        return;
+    }
+
+    // Validate model selection
+    if (!modelNode.data.model || modelNode.data.model.trim() === '') {
+        addLog('error', `Model must be selected for ${modelNode.data.title}`);
+        setNodeStatus(modelNode.id, 'error');
+        return;
+    }
+
+    // Disable run buttons
+    state.isRunningModelNode = true;
+    updateModelButtons();
+    updateOptimizeButtons();
+    updateRunButton();
+
+    // Enable cancel button
+    document.getElementById('cancelButton').disabled = false;
+
+    // Create abort controller
+    state.modelRunAbortController = new AbortController();
+
+    // Reset model output
+    modelNode.data.output = '';
+    setNodeStatus(modelNode.id, 'running');
+
+    try {
+        // Combine prompts
+        let combinedPrompt = '';
+        if (hasSystemPrompt && hasUserPrompt) {
+            combinedPrompt = `System: ${promptNode.data.systemPrompt}\n\nUser: ${promptNode.data.userPrompt}`;
+        } else if (hasSystemPrompt) {
+            combinedPrompt = `System: ${promptNode.data.systemPrompt}`;
+        } else if (hasUserPrompt) {
+            combinedPrompt = `User: ${promptNode.data.userPrompt}`;
+        }
+
+        addLog('info', `Running ${modelNode.data.title}`);
+
+        // Build tools catalog for this model
+        const registeredTools = findRegisteredTools(modelNode.id, state.edges, state.nodes);
+        const toolsCatalog = buildToolsCatalog(registeredTools);
+
+        const startTime = Date.now();
+
+        await callModelStreaming(
+            combinedPrompt,
+            modelNode.data.model,
+            modelNode.data.temperature,
+            modelNode.data.maxTokens,
+            (chunk) => {
+                modelNode.data.output += chunk;
+                updateNodeDisplay(modelNode.id);
+                if (state.selectedNodeId === modelNode.id) {
+                    const outputEl = document.getElementById('inspectorOutput');
+                    if (outputEl) {
+                        outputEl.value = modelNode.data.output;
+                    }
+                }
+            },
+            state.modelRunAbortController.signal,
+            toolsCatalog.length > 0 ? toolsCatalog : null,
+            modelNode.data.provider || 'ollama'
+        );
+
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+        setNodeStatus(modelNode.id, 'success');
+        addLog('info', `${modelNode.data.title} completed in ${duration}s`);
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            setNodeStatus(modelNode.id, 'error');
+            updateNodeDisplay(modelNode.id);
+            addLog('warn', `${modelNode.data.title} run canceled`);
+        } else {
+            setNodeStatus(modelNode.id, 'error');
+            updateNodeDisplay(modelNode.id);
+            addLog('error', `${modelNode.data.title} error: ${error.message}`);
+        }
+    } finally {
+        // Re-enable run buttons
+        state.isRunningModelNode = false;
+        state.modelRunAbortController = null;
+        updateModelButtons();
+        updateOptimizeButtons();
+        updateRunButton();
+
+        // Disable cancel if nothing is running
+        if (!state.isRunning && !state.isOptimizing) {
+            document.getElementById('cancelButton').disabled = true;
+        }
+
+        // Update inspector if this node is selected
+        if (state.selectedNodeId === nodeId) {
+            updateInspector();
+        }
+    }
+}
+
+/**
  * Update Optimize node button states
  */
 function updateOptimizeButtons() {
-    const disabled = state.isRunning || state.isOptimizing;
+    const disabled = state.isRunning || state.isOptimizing || state.isRunningModelNode;
 
     // Update inspector button if Optimize node is selected
     const inspectorBtn = document.getElementById('inspectorRunOptimize');
+    if (inspectorBtn) {
+        inspectorBtn.disabled = disabled;
+        inspectorBtn.style.background = disabled ? '#6c757d' : '#4a9eff';
+        inspectorBtn.style.opacity = disabled ? '0.6' : '1';
+        inspectorBtn.style.cursor = disabled ? 'not-allowed' : 'pointer';
+    }
+}
+
+/**
+ * Update Model node button states
+ */
+function updateModelButtons() {
+    const disabled = state.isRunning || state.isOptimizing || state.isRunningModelNode;
+
+    // Update inspector button if Model node is selected
+    const inspectorBtn = document.getElementById('inspectorRunModel');
     if (inspectorBtn) {
         inspectorBtn.disabled = disabled;
         inspectorBtn.style.background = disabled ? '#6c757d' : '#4a9eff';
