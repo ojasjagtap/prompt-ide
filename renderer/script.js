@@ -40,6 +40,7 @@ const state = {
     edges: new Map(), // id -> edge data
     nodeIdCounter: 1,
     edgeIdCounter: 1,
+    maxZIndex: 1, // Track highest z-index for bringing nodes to front
 
     // Selection
     selectedNodeId: null,
@@ -184,6 +185,7 @@ function createNode(type, worldX, worldY) {
         width: NODE_WIDTH,
         height: NODE_MIN_HEIGHT,
         status: 'idle', // idle | running | success | error
+        zIndex: state.maxZIndex++, // Assign and increment z-index
         data: {}
     };
 
@@ -237,12 +239,21 @@ function deleteNode(id) {
     updateRunButton();
 }
 
+function bringNodeToFront(id) {
+    const node = state.nodes.get(id);
+    if (!node) return;
+
+    // Assign the highest z-index to this node
+    node.zIndex = state.maxZIndex++;
+}
+
 function renderNode(id) {
     const node = state.nodes.get(id);
     if (!node) return;
 
     const nodesLayer = document.getElementById('nodesLayer');
     let nodeEl = document.getElementById(id);
+    let isNewNode = false;
 
     if (!nodeEl) {
         nodeEl = document.createElement('div');
@@ -250,6 +261,7 @@ function renderNode(id) {
         nodeEl.className = 'flow-node';
         nodeEl.dataset.nodeType = node.type;
         nodesLayer.appendChild(nodeEl);
+        isNewNode = true;
     }
 
     // Position and size
@@ -259,6 +271,12 @@ function renderNode(id) {
     nodeEl.style.width = `${node.width}px`;
     nodeEl.style.height = 'auto'; // Let content dictate height
     nodeEl.style.transform = `scale(${state.viewport.scale})`;
+
+    // Apply z-index, initializing if needed
+    if (node.zIndex === undefined) {
+        node.zIndex = state.maxZIndex++;
+    }
+    nodeEl.style.zIndex = node.zIndex;
 
     // Status
     nodeEl.classList.toggle('node-selected', node.id === state.selectedNodeId);
@@ -339,11 +357,13 @@ function renderNode(id) {
         nodeEl.innerHTML = renderToolNode(node, connectedModels);
     }
 
-    // Add event listeners
-    nodeEl.addEventListener('mousedown', onNodeMouseDown);
-    nodeEl.addEventListener('click', onNodeClick);
+    // Add event listeners only for new nodes
+    if (isNewNode) {
+        nodeEl.addEventListener('mousedown', onNodeMouseDown);
+        nodeEl.addEventListener('click', onNodeClick);
+    }
 
-    // Pin listeners
+    // Pin listeners - need to re-add these since innerHTML replaces content
     const pins = nodeEl.querySelectorAll('.pin');
     pins.forEach(pin => {
         pin.addEventListener('mousedown', onPinMouseDown);
@@ -997,6 +1017,10 @@ function onNodeMouseDown(e) {
     const world = screenToWorld(x, y);
     const node = state.nodes.get(nodeId);
 
+    // Bring node to front when starting to drag (just update z-index, don't re-render)
+    bringNodeToFront(nodeId);
+    nodeEl.style.zIndex = node.zIndex;
+
     state.isDraggingNode = true;
     state.draggedNodeId = nodeId;
     state.dragOffsetX = world.x - node.x;
@@ -1007,6 +1031,10 @@ function onNodeMouseDown(e) {
 function onNodeClick(e) {
     e.stopPropagation();
     const nodeId = e.currentTarget.id;
+
+    // Bring node to front when selected
+    bringNodeToFront(nodeId);
+
     state.selectedNodeId = nodeId;
     state.selectedEdgeId = null;
     renderEdges();
