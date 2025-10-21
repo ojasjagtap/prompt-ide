@@ -1,6 +1,6 @@
 /**
- * Optimize Node Helper
- * Handles Optimize node creation, rendering, validation, and execution
+ * Evolutionary Optimize Node Helper
+ * Handles Evolutionary Optimize node creation, rendering, validation, and execution
  * Uses evolutionary search with BLEU/Levenshtein metrics and hyperparameter tuning
  */
 
@@ -121,11 +121,11 @@ function evaluateOutput(candidate, reference) {
 // ============================================================================
 
 /**
- * Initialize optimize node data structure
+ * Initialize evolutionary optimize node data structure
  */
-function createOptimizeNodeData() {
+function createEvolutionaryOptimizeNodeData() {
     return {
-        title: 'Optimize',
+        title: 'Evolutionary',
         expectedOutput: '',
         numGenerations: 5,          // Evolutionary generations
         populationSize: 6,          // Population pool size
@@ -139,9 +139,9 @@ function createOptimizeNodeData() {
 }
 
 /**
- * Render optimize node HTML
+ * Render evolutionary optimize node HTML
  */
-function renderOptimizeNode(node, edges, nodes) {
+function renderEvolutionaryOptimizeNode(node, edges, nodes) {
     return `
         <div class="node-header">
             <div class="header-top">
@@ -168,9 +168,9 @@ function renderOptimizeNode(node, edges, nodes) {
 }
 
 /**
- * Render optimize node inspector UI
+ * Render evolutionary optimize node inspector UI
  */
-function renderOptimizeInspector(node, updateNodeDisplay, edges, nodes) {
+function renderEvolutionaryOptimizeInspector(node, updateNodeDisplay, edges, nodes) {
     // Button is only disabled when optimization is running
     const buttonDisabled = node.data.optimizationStatus === 'running';
 
@@ -237,11 +237,11 @@ function renderOptimizeInspector(node, updateNodeDisplay, edges, nodes) {
             if (runButton && context && context.runOptimizeNode) {
                 runButton.addEventListener('click', async () => {
                     // Validate before running
-                    const errors = validateOptimizeNode(node, context.edges, context.nodes);
+                    const errors = validateEvolutionaryOptimizeNode(node, context.edges, context.nodes);
                     if (errors.length > 0) {
                         // Log each error
                         errors.forEach(error => {
-                            context.addLog('error', `Optimize: ${error}`);
+                            context.addLog('error', `Evolutionary Optimize: ${error}`);
                         });
                         return;
                     }
@@ -254,9 +254,9 @@ function renderOptimizeInspector(node, updateNodeDisplay, edges, nodes) {
 }
 
 /**
- * Validate optimize node connections
+ * Validate evolutionary optimize node connections
  */
-function isValidOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin) {
+function isValidEvolutionaryOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin) {
     // Allow Model.output → Optimize.input (model response to optimize)
     if (sourceNode.type === 'model' && sourcePin === 'output' &&
         targetNode.type === 'optimize' && targetPin === 'input') {
@@ -277,9 +277,9 @@ function isValidOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin)
 // ============================================================================
 
 /**
- * Find connected Prompt node for optimization
+ * Find connected Prompt node for evolutionary optimization
  */
-function findConnectedPromptNode(optimizeNodeId, edges, nodes) {
+function findConnectedPromptNode(evolutionaryOptimizeNodeId, edges, nodes) {
     for (const node of nodes.values()) {
         if (node.type === 'prompt' && node.data.systemPrompt) {
             return node;
@@ -289,10 +289,10 @@ function findConnectedPromptNode(optimizeNodeId, edges, nodes) {
 }
 
 /**
- * Check if Optimize node is ready to run
+ * Check if Evolutionary Optimize node is ready to run
  * Returns boolean
  */
-function isOptimizeNodeReady(optimizeNode, edges, nodes) {
+function isEvolutionaryOptimizeNodeReady(evolutionaryOptimizeNode, edges, nodes) {
     // Check 1: Prompt node with system prompt exists
     let hasPromptNode = false;
     for (const node of nodes.values()) {
@@ -304,7 +304,7 @@ function isOptimizeNodeReady(optimizeNode, edges, nodes) {
     if (!hasPromptNode) return false;
 
     // Check 2: Expected Output is filled
-    if (!optimizeNode.data.expectedOutput?.trim()) return false;
+    if (!evolutionaryOptimizeNode.data.expectedOutput?.trim()) return false;
 
     // Check 3: Model node exists
     let hasModelNode = false;
@@ -316,9 +316,9 @@ function isOptimizeNodeReady(optimizeNode, edges, nodes) {
     }
     if (!hasModelNode) return false;
 
-    // Check 4: If Model is connected to Optimize, it must have output
+    // Check 4: If Model is connected to Evolutionary Optimize, it must have output
     for (const edge of edges.values()) {
-        if (edge.targetNodeId === optimizeNode.id && edge.targetPin === 'input') {
+        if (edge.targetNodeId === evolutionaryOptimizeNode.id && edge.targetPin === 'input') {
             const sourceNode = nodes.get(edge.sourceNodeId);
             if (sourceNode?.type === 'model' && edge.sourcePin === 'output') {
                 // Model is connected - check if it has output
@@ -334,10 +334,10 @@ function isOptimizeNodeReady(optimizeNode, edges, nodes) {
 }
 
 /**
- * Validate Optimize node and return error messages for what's missing
+ * Validate Evolutionary Optimize node and return error messages for what's missing
  * Returns array of error messages (empty if ready)
  */
-function validateOptimizeNode(optimizeNode, edges, nodes) {
+function validateEvolutionaryOptimizeNode(evolutionaryOptimizeNode, edges, nodes) {
     const errors = [];
 
     // Check 1: Prompt node with system prompt exists
@@ -353,7 +353,7 @@ function validateOptimizeNode(optimizeNode, edges, nodes) {
     }
 
     // Check 2: Expected Output is filled
-    if (!optimizeNode.data.expectedOutput?.trim()) {
+    if (!evolutionaryOptimizeNode.data.expectedOutput?.trim()) {
         errors.push('Expected Output is required');
     }
 
@@ -369,9 +369,9 @@ function validateOptimizeNode(optimizeNode, edges, nodes) {
         errors.push('Missing Model node');
     }
 
-    // Check 4: If Model is connected to Optimize, it must have output
+    // Check 4: If Model is connected to Evolutionary Optimize, it must have output
     for (const edge of edges.values()) {
-        if (edge.targetNodeId === optimizeNode.id && edge.targetPin === 'input') {
+        if (edge.targetNodeId === evolutionaryOptimizeNode.id && edge.targetPin === 'input') {
             const sourceNode = nodes.get(edge.sourceNodeId);
             if (sourceNode?.type === 'model' && edge.sourcePin === 'output') {
                 // Model is connected - check if it has output
@@ -462,8 +462,8 @@ async function evaluatePrompt(
 /**
  * Execute evolutionary optimization with hyperparameter tuning
  */
-async function executeOptimizeNode(
-    optimizeNode,
+async function executeEvolutionaryOptimizeNode(
+    evolutionaryOptimizeNode,
     edges,
     nodes,
     callModelStreaming,
@@ -474,29 +474,29 @@ async function executeOptimizeNode(
 ) {
     // ========== PRECONDITIONS ==========
 
-    const promptNode = findConnectedPromptNode(optimizeNode.id, edges, nodes);
+    const promptNode = findConnectedPromptNode(evolutionaryOptimizeNode.id, edges, nodes);
 
     if (!promptNode) {
-        addLog('error', `Optimize: No Prompt node found`);
-        setNodeStatus(optimizeNode.id, 'error');
-        optimizeNode.data.optimizationStatus = 'error';
-        updateNodeDisplay(optimizeNode.id);
+        addLog('error', `Evolutionary Optimize: No Prompt node found`);
+        setNodeStatus(evolutionaryOptimizeNode.id, 'error');
+        evolutionaryOptimizeNode.data.optimizationStatus = 'error';
+        updateNodeDisplay(evolutionaryOptimizeNode.id);
         return;
     }
 
     if (!promptNode.data.systemPrompt?.trim()) {
-        addLog('error', `Optimize: Prompt node has no system prompt`);
-        setNodeStatus(optimizeNode.id, 'error');
-        optimizeNode.data.optimizationStatus = 'error';
-        updateNodeDisplay(optimizeNode.id);
+        addLog('error', `Evolutionary Optimize: Prompt node has no system prompt`);
+        setNodeStatus(evolutionaryOptimizeNode.id, 'error');
+        evolutionaryOptimizeNode.data.optimizationStatus = 'error';
+        updateNodeDisplay(evolutionaryOptimizeNode.id);
         return;
     }
 
-    if (!optimizeNode.data.expectedOutput?.trim()) {
-        addLog('error', `Optimize: Expected Output is required`);
-        setNodeStatus(optimizeNode.id, 'error');
-        optimizeNode.data.optimizationStatus = 'error';
-        updateNodeDisplay(optimizeNode.id);
+    if (!evolutionaryOptimizeNode.data.expectedOutput?.trim()) {
+        addLog('error', `Evolutionary Optimize: Expected Output is required`);
+        setNodeStatus(evolutionaryOptimizeNode.id, 'error');
+        evolutionaryOptimizeNode.data.optimizationStatus = 'error';
+        updateNodeDisplay(evolutionaryOptimizeNode.id);
         return;
     }
 
@@ -513,29 +513,29 @@ async function executeOptimizeNode(
     }
 
     if (!optimizationModel) {
-        addLog('error', `Optimize: No Model node found`);
-        setNodeStatus(optimizeNode.id, 'error');
-        optimizeNode.data.optimizationStatus = 'error';
-        updateNodeDisplay(optimizeNode.id);
+        addLog('error', `Evolutionary Optimize: No Model node found`);
+        setNodeStatus(evolutionaryOptimizeNode.id, 'error');
+        evolutionaryOptimizeNode.data.optimizationStatus = 'error';
+        updateNodeDisplay(evolutionaryOptimizeNode.id);
         return;
     }
 
     // ========== INITIALIZATION ==========
 
-    setNodeStatus(optimizeNode.id, 'running');
-    optimizeNode.data.optimizationStatus = 'running';
-    optimizeNode.data.population = [];
-    optimizeNode.data.currentGeneration = 0;
-    optimizeNode.data.bestScore = 0;
-    updateNodeDisplay(optimizeNode.id);
+    setNodeStatus(evolutionaryOptimizeNode.id, 'running');
+    evolutionaryOptimizeNode.data.optimizationStatus = 'running';
+    evolutionaryOptimizeNode.data.population = [];
+    evolutionaryOptimizeNode.data.currentGeneration = 0;
+    evolutionaryOptimizeNode.data.bestScore = 0;
+    updateNodeDisplay(evolutionaryOptimizeNode.id);
 
     const basePrompt = promptNode.data.systemPrompt;
     const testInput = promptNode.data.userPrompt || "Generate a response.";
-    const expectedOutput = optimizeNode.data.expectedOutput;
-    const popSize = optimizeNode.data.populationSize;
-    const numGens = optimizeNode.data.numGenerations;
+    const expectedOutput = evolutionaryOptimizeNode.data.expectedOutput;
+    const popSize = evolutionaryOptimizeNode.data.populationSize;
+    const numGens = evolutionaryOptimizeNode.data.numGenerations;
 
-    addLog('info', `Optimize: Starting ${numGens} generations, population ${popSize}`);
+    addLog('info', `Evolutionary Optimize: Starting ${numGens} generations, population ${popSize}`);
 
     try {
         // Hyperparameter candidates to test
@@ -543,7 +543,7 @@ async function executeOptimizeNode(
 
         // ========== INITIAL POPULATION ==========
 
-        addLog('info', `Optimize: Creating initial population`);
+        addLog('info', `Evolutionary Optimize: Creating initial population`);
 
         const population = [{ prompt: basePrompt, score: 0, temp: 0.7 }];
 
@@ -573,10 +573,10 @@ async function executeOptimizeNode(
         for (let gen = 0; gen < numGens; gen++) {
             if (signal?.aborted) throw new Error('Cancelled');
 
-            optimizeNode.data.currentGeneration = gen + 1;
-            updateNodeDisplay(optimizeNode.id);
+            evolutionaryOptimizeNode.data.currentGeneration = gen + 1;
+            updateNodeDisplay(evolutionaryOptimizeNode.id);
 
-            addLog('info', `Optimize: Generation ${gen + 1}/${numGens}`);
+            addLog('info', `Evolutionary Optimize: Generation ${gen + 1}/${numGens}`);
 
             // Evaluate each candidate with hyperparameter tuning
             for (const candidate of population) {
@@ -612,14 +612,14 @@ async function executeOptimizeNode(
             population.sort((a, b) => b.score - a.score);
 
             const best = population[0];
-            addLog('info', `Optimize: Best score ${(best.score * 100).toFixed(1)}% (temp ${best.temp})`);
+            addLog('info', `Evolutionary Optimize: Best score ${(best.score * 100).toFixed(1)}% (temp ${best.temp})`);
 
             // Update global best
-            if (best.score > optimizeNode.data.bestScore) {
-                optimizeNode.data.bestScore = best.score;
-                optimizeNode.data.bestPrompt = best.prompt;
-                optimizeNode.data.bestHyperparams = { temperature: best.temp };
-                updateNodeDisplay(optimizeNode.id);
+            if (best.score > evolutionaryOptimizeNode.data.bestScore) {
+                evolutionaryOptimizeNode.data.bestScore = best.score;
+                evolutionaryOptimizeNode.data.bestPrompt = best.prompt;
+                evolutionaryOptimizeNode.data.bestHyperparams = { temperature: best.temp };
+                updateNodeDisplay(evolutionaryOptimizeNode.id);
             }
 
             // Stop if we're at the last generation
@@ -686,26 +686,26 @@ async function executeOptimizeNode(
 
         // ========== FINALIZATION ==========
 
-        optimizeNode.data.optimizationStatus = 'success';
-        setNodeStatus(optimizeNode.id, 'success');
-        updateNodeDisplay(optimizeNode.id);
+        evolutionaryOptimizeNode.data.optimizationStatus = 'success';
+        setNodeStatus(evolutionaryOptimizeNode.id, 'success');
+        updateNodeDisplay(evolutionaryOptimizeNode.id);
 
-        addLog('info', `Optimize: Complete with ${(optimizeNode.data.bestScore * 100).toFixed(1)}% score (temp ${optimizeNode.data.bestHyperparams.temperature})`);
+        addLog('info', `Evolutionary Optimize: Complete with ${(evolutionaryOptimizeNode.data.bestScore * 100).toFixed(1)}% score (temp ${evolutionaryOptimizeNode.data.bestHyperparams.temperature})`);
 
     } catch (error) {
-        setNodeStatus(optimizeNode.id, 'error');
-        optimizeNode.data.optimizationStatus = 'error';
-        updateNodeDisplay(optimizeNode.id);
-        addLog('error', `Optimize error: ${error.message}`);
+        setNodeStatus(evolutionaryOptimizeNode.id, 'error');
+        evolutionaryOptimizeNode.data.optimizationStatus = 'error';
+        updateNodeDisplay(evolutionaryOptimizeNode.id);
+        addLog('error', `Evolutionary Optimize error: ${error.message}`);
     }
 }
 
 module.exports = {
-    createOptimizeNodeData,
-    renderOptimizeNode,
-    renderOptimizeInspector,
-    isValidOptimizeConnection,
-    isOptimizeNodeReady,
-    validateOptimizeNode,
-    executeOptimizeNode
+    createEvolutionaryOptimizeNodeData,
+    renderEvolutionaryOptimizeNode,
+    renderEvolutionaryOptimizeInspector,
+    isValidEvolutionaryOptimizeConnection,
+    isEvolutionaryOptimizeNodeReady,
+    validateEvolutionaryOptimizeNode,
+    executeEvolutionaryOptimizeNode
 };

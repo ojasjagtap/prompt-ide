@@ -5,12 +5,12 @@
 
 const { listModels } = require('../services/modelService');
 const {
-    createOptimizeNodeData,
-    renderOptimizeNode,
-    renderOptimizeInspector,
-    isValidOptimizeConnection,
-    executeOptimizeNode
-} = require('./optimize-script');
+    createEvolutionaryOptimizeNodeData,
+    renderEvolutionaryOptimizeNode,
+    renderEvolutionaryOptimizeInspector,
+    isValidEvolutionaryOptimizeConnection,
+    executeEvolutionaryOptimizeNode
+} = require('./evolutionary-optimize-script');
 const {
     createToolNodeData,
     renderToolNode,
@@ -207,7 +207,7 @@ function createNode(type, worldX, worldY) {
             output: ''
         };
     } else if (type === 'optimize') {
-        node.data = createOptimizeNodeData();
+        node.data = createEvolutionaryOptimizeNodeData();
     } else if (type === 'tool') {
         node.data = createToolNodeData();
     }
@@ -353,7 +353,7 @@ function renderNode(id) {
             </div>
         `;
     } else if (node.type === 'optimize') {
-        nodeEl.innerHTML = renderOptimizeNode(node, state.edges, state.nodes);
+        nodeEl.innerHTML = renderEvolutionaryOptimizeNode(node, state.edges, state.nodes);
     } else if (node.type === 'tool') {
         const connectedModels = findConnectedModels(node.id, state.edges, state.nodes);
         nodeEl.innerHTML = renderToolNode(node, connectedModels);
@@ -465,8 +465,8 @@ function isValidConnection(sourceNodeId, sourcePin, targetNodeId, targetPin) {
         return true;
     }
 
-    // Check optimize connections
-    if (isValidOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin)) {
+    // Check evolutionary optimize connections
+    if (isValidEvolutionaryOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin)) {
         return true;
     }
 
@@ -772,7 +772,7 @@ function updateInspector() {
             await runModelNode(node.id);
         });
     } else if (node.type === 'optimize') {
-        const inspector = renderOptimizeInspector(node, updateNodeDisplay, state.edges, state.nodes);
+        const inspector = renderEvolutionaryOptimizeInspector(node, updateNodeDisplay, state.edges, state.nodes);
         inspectorContent.innerHTML = inspector.html;
         inspector.setupListeners({
             edges: state.edges,
@@ -1399,7 +1399,7 @@ async function runFlow() {
         addLog('info', `Running ${optimizeNode.data.title}`);
 
         try {
-            await executeOptimizeNode(
+            await executeEvolutionaryOptimizeNode(
                 optimizeNode,
                 state.edges,
                 state.nodes,
@@ -1494,7 +1494,7 @@ async function runOptimizeNode(nodeId) {
     state.optimizationAbortController = new AbortController();
 
     try {
-        await executeOptimizeNode(
+        await executeEvolutionaryOptimizeNode(
             optimizeNode,
             state.edges,
             state.nodes,
