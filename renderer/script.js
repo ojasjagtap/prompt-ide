@@ -1154,12 +1154,12 @@ function updateRunButton() {
 }
 
 function checkForRunnablePath() {
-    // Check if there's at least one valid path from Prompt to Model or Optimize to Model
+    // Check if there's at least one valid path from Prompt to Model
     for (const edge of state.edges.values()) {
         const sourceNode = state.nodes.get(edge.sourceNodeId);
         const targetNode = state.nodes.get(edge.targetNodeId);
 
-        if ((sourceNode?.type === 'prompt' || sourceNode?.type === 'optimize') && targetNode?.type === 'model') {
+        if (sourceNode?.type === 'prompt' && targetNode?.type === 'model') {
             return true;
         }
     }
@@ -1285,11 +1285,6 @@ async function runFlow() {
                 modelData.systemPrompt = sourceNode.data.systemPrompt || '';
                 modelData.userPrompt = sourceNode.data.userPrompt || '';
             }
-
-            // Handle system input from optimize
-            if (edge.targetPin === 'prompt' && sourceNode?.type === 'optimize') {
-                modelData.systemPrompt = sourceNode.data.bestPrompt || '';
-            }
         }
     }
 
@@ -1315,7 +1310,7 @@ async function runFlow() {
     }
 
     if (modelNodesToRun.length === 0) {
-        addLog('error', 'No runnable Prompt/Optimize → Model path found');
+        addLog('error', 'No runnable Prompt → Model path found');
         state.isRunning = false;
         document.getElementById('runButton').disabled = false;
         document.getElementById('cancelButton').disabled = true;
@@ -1544,10 +1539,6 @@ async function runModelNode(nodeId) {
             if (sourceNode?.type === 'prompt') {
                 promptNode = sourceNode;
                 break;
-            } else if (sourceNode?.type === 'optimize') {
-                // If connected to optimize node, we can't run independently
-                addLog('error', `Cannot run ${modelNode.data.title} independently when connected to Optimize node`);
-                return;
             }
         }
     }

@@ -154,10 +154,6 @@ function renderEvolutionaryOptimizeNode(node, edges, nodes) {
                     <span class="pin-label">response</span>
                 </div>
                 <div class="pin-spacer"></div>
-                <div class="pin-container pin-output-container">
-                    <span class="pin-label">optimized</span>
-                    <div class="pin pin-output" data-pin="prompt"></div>
-                </div>
             </div>
         </div>
         <div class="node-body">
@@ -271,12 +267,6 @@ function isValidEvolutionaryOptimizeConnection(sourceNode, sourcePin, targetNode
             }
         }
 
-        return true;
-    }
-
-    // Allow Optimize.prompt → Model.prompt (optimized prompt to model)
-    if (sourceNode.type === 'optimize' && sourcePin === 'prompt' &&
-        targetNode.type === 'model' && targetPin === 'prompt') {
         return true;
     }
 
