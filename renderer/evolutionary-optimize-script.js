@@ -170,9 +170,9 @@ function renderEvolutionaryOptimizeNode(node, edges, nodes) {
 /**
  * Render evolutionary optimize node inspector UI
  */
-function renderEvolutionaryOptimizeInspector(node, updateNodeDisplay, edges, nodes) {
-    // Button is only disabled when optimization is running
-    const buttonDisabled = node.data.optimizationStatus === 'running';
+function renderEvolutionaryOptimizeInspector(node, updateNodeDisplay, edges, nodes, state) {
+    // Button is disabled when any operation is running
+    const buttonDisabled = state.isRunning || state.isOptimizing || state.isRunningModelNode;
 
     const html = `
         <div class="inspector-section">
@@ -256,10 +256,21 @@ function renderEvolutionaryOptimizeInspector(node, updateNodeDisplay, edges, nod
 /**
  * Validate evolutionary optimize node connections
  */
-function isValidEvolutionaryOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin) {
+function isValidEvolutionaryOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin, edges) {
     // Allow Model.output → Optimize.input (model response to optimize)
     if (sourceNode.type === 'model' && sourcePin === 'output' &&
         targetNode.type === 'optimize' && targetPin === 'input') {
+
+        // Check if optimize node already has a connection to its input pin
+        if (edges) {
+            for (const edge of edges.values()) {
+                if (edge.targetNodeId === targetNode.id && edge.targetPin === 'input') {
+                    // Already has a connection to the input pin
+                    return false;
+                }
+            }
+        }
+
         return true;
     }
 

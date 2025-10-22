@@ -466,7 +466,7 @@ function isValidConnection(sourceNodeId, sourcePin, targetNodeId, targetPin) {
     }
 
     // Check evolutionary optimize connections
-    if (isValidEvolutionaryOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin)) {
+    if (isValidEvolutionaryOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin, state.edges)) {
         return true;
     }
 
@@ -772,7 +772,7 @@ function updateInspector() {
             await runModelNode(node.id);
         });
     } else if (node.type === 'optimize') {
-        const inspector = renderEvolutionaryOptimizeInspector(node, updateNodeDisplay, state.edges, state.nodes);
+        const inspector = renderEvolutionaryOptimizeInspector(node, updateNodeDisplay, state.edges, state.nodes, state);
         inspectorContent.innerHTML = inspector.html;
         inspector.setupListeners({
             edges: state.edges,
@@ -1256,6 +1256,8 @@ async function runFlow() {
         document.getElementById('statusChip').textContent = 'Idle';
         document.getElementById('statusChip').className = 'status-chip status-idle';
         updateRunButton();
+        updateOptimizeButtons();
+        updateModelButtons();
         return;
     }
 
@@ -1320,6 +1322,8 @@ async function runFlow() {
         document.getElementById('statusChip').textContent = 'Idle';
         document.getElementById('statusChip').className = 'status-chip status-idle';
         updateRunButton();
+        updateOptimizeButtons();
+        updateModelButtons();
         return;
     }
 
@@ -1485,6 +1489,7 @@ async function runOptimizeNode(nodeId) {
     // Disable run buttons
     state.isOptimizing = true;
     updateOptimizeButtons();
+    updateModelButtons();
     updateRunButton();
 
     // Enable cancel button
@@ -1509,6 +1514,7 @@ async function runOptimizeNode(nodeId) {
         state.isOptimizing = false;
         state.optimizationAbortController = null;
         updateOptimizeButtons();
+        updateModelButtons();
         updateRunButton();
 
         // Disable cancel if nothing is running
