@@ -96,7 +96,7 @@ function levenshteinDistance(a, b) {
 }
 
 /**
- * Calculate normalized edit distance (0 = identical, 1 = completely different)
+ * Calculate normalized edit distance (1 = identical, 0 = completely different)
  */
 function calculateEditSimilarity(candidate, reference) {
     if (!candidate || !reference) return 0;
