@@ -237,7 +237,7 @@ function renderEvolutionaryOptimizeInspector(node, updateNodeDisplay, edges, nod
                     if (errors.length > 0) {
                         // Log each error
                         errors.forEach(error => {
-                            context.addLog('error', `Evolutionary Optimize: ${error}`);
+                            context.addLog('error', error, node.id);
                         });
                         return;
                     }
@@ -478,24 +478,21 @@ async function executeEvolutionaryOptimizeNode(
     const promptNode = findConnectedPromptNode(evolutionaryOptimizeNode.id, edges, nodes);
 
     if (!promptNode) {
-        addLog('error', `Evolutionary Optimize: No Prompt node found`);
-        setNodeStatus(evolutionaryOptimizeNode.id, 'error');
+        addLog('error', `No Prompt node found`, evolutionaryOptimizeNode.id);
         evolutionaryOptimizeNode.data.optimizationStatus = 'error';
         updateNodeDisplay(evolutionaryOptimizeNode.id);
         return;
     }
 
     if (!promptNode.data.systemPrompt?.trim()) {
-        addLog('error', `Evolutionary Optimize: Prompt node has no system prompt`);
-        setNodeStatus(evolutionaryOptimizeNode.id, 'error');
+        addLog('error', `Prompt node has no system prompt`, evolutionaryOptimizeNode.id);
         evolutionaryOptimizeNode.data.optimizationStatus = 'error';
         updateNodeDisplay(evolutionaryOptimizeNode.id);
         return;
     }
 
     if (!evolutionaryOptimizeNode.data.expectedOutput?.trim()) {
-        addLog('error', `Evolutionary Optimize: Expected Output is required`);
-        setNodeStatus(evolutionaryOptimizeNode.id, 'error');
+        addLog('error', `Expected Output is required`, evolutionaryOptimizeNode.id);
         evolutionaryOptimizeNode.data.optimizationStatus = 'error';
         updateNodeDisplay(evolutionaryOptimizeNode.id);
         return;
@@ -514,8 +511,7 @@ async function executeEvolutionaryOptimizeNode(
     }
 
     if (!optimizationModel) {
-        addLog('error', `Evolutionary Optimize: No Model node found`);
-        setNodeStatus(evolutionaryOptimizeNode.id, 'error');
+        addLog('error', `No Model node found`, evolutionaryOptimizeNode.id);
         evolutionaryOptimizeNode.data.optimizationStatus = 'error';
         updateNodeDisplay(evolutionaryOptimizeNode.id);
         return;
@@ -694,10 +690,9 @@ async function executeEvolutionaryOptimizeNode(
         addLog('info', `Evolutionary Optimize: Complete with ${(evolutionaryOptimizeNode.data.bestScore * 100).toFixed(1)}% score (temp ${evolutionaryOptimizeNode.data.bestHyperparams.temperature})`);
 
     } catch (error) {
-        setNodeStatus(evolutionaryOptimizeNode.id, 'error');
         evolutionaryOptimizeNode.data.optimizationStatus = 'error';
         updateNodeDisplay(evolutionaryOptimizeNode.id);
-        addLog('error', `Evolutionary Optimize error: ${error.message}`);
+        addLog('error', `Optimization error: ${error.message}`, evolutionaryOptimizeNode.id);
     }
 }
 

@@ -748,6 +748,14 @@ body.panning {
     overflow-wrap: break-word;
 }
 
+.log-clickable {
+    cursor: pointer;
+}
+
+.log-clickable:hover {
+    background: rgba(74, 144, 226, 0.15) !important;
+}
+
 .logs-empty {
     display: flex;
     align-items: center;

@@ -133,14 +133,21 @@ function formatTimestamp() {
 // LOGGING
 // ============================================================================
 
-function addLog(level, message) {
+function addLog(level, message, nodeId = null) {
     const log = {
         timestamp: formatTimestamp(),
         level,
         message,
-        runId: state.currentRunId
+        runId: state.currentRunId,
+        nodeId
     };
     state.logs.push(log);
+
+    // Automatically set node status to error if this is an error log for a specific node
+    if (level === 'error' && nodeId) {
+        setNodeStatus(nodeId, 'error');
+    }
+
     updateLogsUI();
 }
 
@@ -157,16 +164,47 @@ function updateLogsUI() {
     if (filteredLogs.length === 0) {
         logsBody.innerHTML = '<div class="logs-empty">No logs to display</div>';
     } else {
-        logsBody.innerHTML = filteredLogs.map(log => {
+        logsBody.innerHTML = filteredLogs.map((log, index) => {
             const levelClass = `log-level-${log.level}`;
+            const hasNode = log.nodeId && state.nodes.has(log.nodeId);
+            const clickableClass = hasNode ? 'log-clickable' : '';
+            const dataNodeAttr = hasNode ? `data-node-id="${log.nodeId}"` : '';
+
+            // Get node title if available
+            let nodeTitle = '';
+            if (hasNode) {
+                const node = state.nodes.get(log.nodeId);
+                nodeTitle = node.data.title ? `[${node.data.title}] ` : '';
+            }
+
             return `
-                <div class="log-entry ${levelClass}">
+                <div class="log-entry ${levelClass} ${clickableClass}" ${dataNodeAttr} data-log-index="${index}">
                     <span class="log-timestamp">${log.timestamp}</span>
                     <span class="log-level">${log.level}</span>
-                    <span class="log-message">${log.message}</span>
+                    <span class="log-message">${nodeTitle}${log.message}</span>
                 </div>
             `;
         }).join('');
+
+        // Add click listeners to clickable log entries
+        logsBody.querySelectorAll('.log-clickable').forEach(logEntry => {
+            logEntry.addEventListener('click', () => {
+                const nodeId = logEntry.dataset.nodeId;
+                if (nodeId && state.nodes.has(nodeId)) {
+                    // Select the node
+                    state.selectedNodeId = nodeId;
+                    state.selectedEdgeId = null;
+
+                    // Bring node to front
+                    bringNodeToFront(nodeId);
+
+                    // Update displays
+                    renderEdges();
+                    state.nodes.forEach((_, id) => updateNodeDisplay(id));
+                    updateInspector();
+                }
+            });
+        });
     }
 
     // Always scroll to bottom when new logs arrive
@@ -1204,8 +1242,7 @@ async function runFlow() {
             const hasUserPrompt = sourceNode.data.userPrompt && sourceNode.data.userPrompt.trim();
 
             if (!hasSystemPrompt && !hasUserPrompt) {
-                addLog('error', `At least one prompt is required for node ${sourceNode.data.title}`);
-                setNodeStatus(sourceNode.id, 'error');
+                addLog('error', `At least one prompt is required`, sourceNode.id);
                 hasError = true;
             }
         }
@@ -1213,8 +1250,7 @@ async function runFlow() {
         // Validate Model nodes
         if (targetNode?.type === 'model') {
             if (!targetNode.data.model || targetNode.data.model.trim() === '') {
-                addLog('error', `Model must be selected for ${targetNode.data.title}`);
-                setNodeStatus(targetNode.id, 'error');
+                addLog('error', `Model must be selected`, targetNode.id);
                 hasError = true;
             }
         }
@@ -1227,8 +1263,7 @@ async function runFlow() {
 
             // Check if Optimize node has required Expected Output
             if (!targetNode.data.expectedOutput || !targetNode.data.expectedOutput.trim()) {
-                addLog('error', `Expected Output is required for ${targetNode.data.title}`);
-                setNodeStatus(targetNode.id, 'error');
+                addLog('error', `Expected Output is required`, targetNode.id);
                 hasError = true;
             }
 
@@ -1242,8 +1277,7 @@ async function runFlow() {
             }
 
             if (!hasPromptNode) {
-                addLog('error', `${targetNode.data.title} requires a Prompt node with system prompt`);
-                setNodeStatus(targetNode.id, 'error');
+                addLog('error', `Requires a Prompt node with system prompt`, targetNode.id);
                 hasError = true;
             }
         }
@@ -1377,14 +1411,12 @@ async function runFlow() {
             }
         } catch (error) {
             if (error.name === 'AbortError') {
-                setNodeStatus(modelNode.id, 'error');
                 updateNodeDisplay(modelNode.id);
                 addLog('warn', 'Flow run canceled');
                 break;
             } else {
-                setNodeStatus(modelNode.id, 'error');
                 updateNodeDisplay(modelNode.id);
-                addLog('error', `${modelNode.data.title} error: ${error.message}`);
+                addLog('error', `Error: ${error.message}`, modelNode.id);
             }
         }
     }
@@ -1545,7 +1577,7 @@ async function runModelNode(nodeId) {
 
     // Validate prompt node
     if (!promptNode) {
-        addLog('error', `${modelNode.data.title} is not connected to a Prompt node`);
+        addLog('error', `Not connected to a Prompt node`, modelNode.id);
         return;
     }
 
@@ -1553,15 +1585,13 @@ async function runModelNode(nodeId) {
     const hasUserPrompt = promptNode.data.userPrompt && promptNode.data.userPrompt.trim();
 
     if (!hasSystemPrompt && !hasUserPrompt) {
-        addLog('error', `At least one prompt is required for node ${promptNode.data.title}`);
-        setNodeStatus(promptNode.id, 'error');
+        addLog('error', `At least one prompt is required`, promptNode.id);
         return;
     }
 
     // Validate model selection
     if (!modelNode.data.model || modelNode.data.model.trim() === '') {
-        addLog('error', `Model must be selected for ${modelNode.data.title}`);
-        setNodeStatus(modelNode.id, 'error');
+        addLog('error', `Model must be selected`, modelNode.id);
         return;
     }
 
@@ -1627,11 +1657,10 @@ async function runModelNode(nodeId) {
         if (error.name === 'AbortError') {
             setNodeStatus(modelNode.id, 'error');
             updateNodeDisplay(modelNode.id);
-            addLog('warn', `${modelNode.data.title} run canceled`);
+            addLog('warn', `Run canceled`, modelNode.id);
         } else {
-            setNodeStatus(modelNode.id, 'error');
             updateNodeDisplay(modelNode.id);
-            addLog('error', `${modelNode.data.title} error: ${error.message}`);
+            addLog('error', `Error: ${error.message}`, modelNode.id);
         }
     } finally {
         // Re-enable run buttons
@@ -1852,7 +1881,7 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
             // Validate arguments against schema
             const validationError = validateToolArguments(args, toolNode.data.parametersSchema);
             if (validationError) {
-                addLog('error', `${name}: ${validationError}`);
+                addLog('error', `${name}: ${validationError}`, toolNode.id);
                 hasToolError = true;
                 break;
             }
@@ -1877,7 +1906,7 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
                         addLog('info', `${name} completed in ${duration}s`);
                     }
                 } else {
-                    addLog('error', `${name}: ${normalized.error.message}`);
+                    addLog('error', `${name}: ${normalized.error.message}`, toolNode.id);
                     hasToolError = true;
                     break;
                 }
@@ -1892,7 +1921,7 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
                 });
             } catch (error) {
                 const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-                addLog('error', `${name}: ${error.message} (${duration}s)`);
+                addLog('error', `${name}: ${error.message} (${duration}s)`, toolNode.id);
                 hasToolError = true;
                 break;
             }

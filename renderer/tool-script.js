@@ -324,7 +324,7 @@ function validateTool(node, addLog, getAllToolNodesFn) {
     // Log validation errors only
     if (issues.length > 0) {
         issues.forEach(issue => {
-            addLog('error', `Tool validation: ${issue}`);
+            addLog('error', `Tool validation: ${issue}`, node.id);
         });
     }
 }
