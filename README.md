@@ -64,7 +64,7 @@ Configure node settings with a dynamic inspector:
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/AnanthSankaralingam/prompt-goat-sandbox.git
+git clone https://github.com/ojasjagtap/prompt-ide.git
 cd prompt-goat-sandbox
 ```
 
