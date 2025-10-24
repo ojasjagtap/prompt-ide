@@ -326,6 +326,8 @@ function validateTool(node, addLog, getAllToolNodesFn) {
         issues.forEach(issue => {
             addLog('error', `Tool validation: ${issue}`, node.id);
         });
+    } else {
+        addLog('info', `Tool validation passed`, node.id);
     }
 }
 
