@@ -460,40 +460,50 @@ function validateEvolutionaryOptimizeNode(evolutionaryOptimizeNode, edges, nodes
 
 /**
  * Mutate a prompt using LLM (evolutionary mutation)
+ * Includes expected output for guided evolution
  */
-function buildMutationPrompt(prompt) {
-    return `You are a prompt engineering expert. Create a meaningful variation of the following system prompt.
+function buildMutationPrompt(prompt, expectedOutput) {
+    // Build the mutation prompt with expected output guidance
+    let mutationPrompt = `You are a prompt engineering expert. Create a meaningful variation of the following system prompt.
 
-Original Prompt:
+EXPECTED OUTPUT: ${expectedOutput}
+
+ORIGINAL PROMPT:
 ${prompt}
 
 Generate ONE improved variation that:
-- Maintains the core intent
+- Optimizes for producing outputs like the expected output shown above
 - Uses different phrasing or structure
 - Adds clarity or specificity
 - Could potentially improve output quality
 
-Output ONLY the new prompt, without explanations. Start directly with the prompt content.`;
+OUTPUT ONLY the new prompt, without explanations. Start directly with the prompt content.`;
+
+    return mutationPrompt;
 }
 
 /**
  * Crossover two prompts (combine elements from parents)
+ * Includes expected output for guided evolution
  */
-function buildCrossoverPrompt(prompt1, prompt2) {
+function buildCrossoverPrompt(prompt1, prompt2, expectedOutput) {
     return `You are a prompt engineering expert. Combine the best elements from these two prompts into a single, superior prompt.
 
-Prompt A:
+EXPECTED OUTPUT: ${expectedOutput}
+
+PROMPT A:
 ${prompt1}
 
-Prompt B:
+PROMPT B:
 ${prompt2}
 
 Create a hybrid prompt that:
-- Takes the best aspects from both
+- Optimizes for producing outputs like the expected output shown above
+- Takes the best aspects from both parents
 - Maintains coherence and clarity
 - Is more effective than either parent
 
-Output ONLY the hybrid prompt, without explanations.`;
+OUTPUT ONLY the hybrid prompt, without explanations.`;
 }
 
 // ============================================================================
@@ -620,7 +630,7 @@ async function executeEvolutionaryOptimizeNode(
         for (let i = 1; i < popSize; i++) {
             if (signal?.aborted) throw new Error('Cancelled');
 
-            const mutationPrompt = buildMutationPrompt(basePrompt);
+            const mutationPrompt = buildMutationPrompt(basePrompt, expectedOutput);
             let mutated = '';
 
             await callModelStreaming(
@@ -712,7 +722,8 @@ async function executeEvolutionaryOptimizeNode(
 
                     const crossoverPrompt = buildCrossoverPrompt(
                         parent1.prompt,
-                        parent2.prompt
+                        parent2.prompt,
+                        expectedOutput
                     );
 
                     let offspring = '';
@@ -731,7 +742,7 @@ async function executeEvolutionaryOptimizeNode(
                 } else {
                     // Mutation (70% of offspring)
                     const parent = survivors[Math.floor(Math.random() * survivors.length)];
-                    const mutationPrompt = buildMutationPrompt(parent.prompt);
+                    const mutationPrompt = buildMutationPrompt(parent.prompt, expectedOutput);
 
                     let mutated = '';
                     await callModelStreaming(
