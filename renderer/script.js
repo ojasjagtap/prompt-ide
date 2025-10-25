@@ -818,7 +818,8 @@ function updateInspector() {
             callModelStreaming,
             setNodeStatus,
             addLog,
-            runOptimizeNode
+            runOptimizeNode,
+            updateNodeDisplay
         });
     } else if (node.type === 'tool') {
         const inspector = renderToolInspector(node, updateNodeDisplay, addLog);

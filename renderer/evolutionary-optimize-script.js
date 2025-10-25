@@ -170,6 +170,10 @@ function renderEvolutionaryOptimizeInspector(node, updateNodeDisplay, edges, nod
     // Button is disabled when any operation is running
     const buttonDisabled = state.isRunning || state.isOptimizing || state.isRunningModelNode;
 
+    // Check if we have optimized results to apply
+    const hasOptimizedResults = node.data.bestPrompt && node.data.bestScore > 0;
+    const applyButtonDisabled = buttonDisabled || !hasOptimizedResults;
+
     const html = `
         <div class="inspector-section">
             <label>Title</label>
@@ -201,6 +205,13 @@ function renderEvolutionaryOptimizeInspector(node, updateNodeDisplay, edges, nod
                     style="width: 100%; padding: 10px; background: ${buttonDisabled ? '#6c757d' : '#4a9eff'}; color: white; border: none; border-radius: 4px; cursor: ${buttonDisabled ? 'not-allowed' : 'pointer'}; font-size: 14px; opacity: ${buttonDisabled ? '0.6' : '1'};"
                     ${buttonDisabled ? 'disabled' : ''}>
                 Run
+            </button>
+        </div>
+        <div class="inspector-section">
+            <button id="inspectorApplyToModel" class="inspector-button"
+                    style="width: 100%; padding: 10px; background: ${applyButtonDisabled ? '#6c757d' : '#4a9eff'}; color: white; border: none; border-radius: 4px; cursor: ${applyButtonDisabled ? 'not-allowed' : 'pointer'}; font-size: 14px; opacity: ${applyButtonDisabled ? '0.6' : '1'};"
+                    ${applyButtonDisabled ? 'disabled' : ''}>
+                Apply
             </button>
         </div>
     `;
@@ -245,6 +256,14 @@ function renderEvolutionaryOptimizeInspector(node, updateNodeDisplay, edges, nod
                     await context.runOptimizeNode(node.id);
                 });
             }
+
+            // Apply to Model button
+            const applyButton = document.getElementById('inspectorApplyToModel');
+            if (applyButton && context) {
+                applyButton.addEventListener('click', () => {
+                    applyOptimizedValuesToModel(node, context.edges, context.nodes, context.addLog, context.updateNodeDisplay);
+                });
+            }
         }
     };
 }
@@ -287,6 +306,59 @@ function findConnectedPromptNode(evolutionaryOptimizeNodeId, edges, nodes) {
         }
     }
     return null;
+}
+
+/**
+ * Find the model node connected to the optimize node
+ * The model node is connected as: Model.output → Optimize.input
+ */
+function findConnectedModelNode(optimizeNodeId, edges, nodes) {
+    // Find the edge where optimize node is the target
+    for (const edge of edges.values()) {
+        if (edge.targetNodeId === optimizeNodeId && edge.targetPin === 'input') {
+            const sourceNode = nodes.get(edge.sourceNodeId);
+            if (sourceNode && sourceNode.type === 'model' && edge.sourcePin === 'output') {
+                return sourceNode;
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * Apply optimized prompt and temperature to the connected model node
+ */
+function applyOptimizedValuesToModel(optimizeNode, edges, nodes, addLog, updateNodeDisplay) {
+    // Check if we have optimized results
+    if (!optimizeNode.data.bestPrompt || !optimizeNode.data.bestScore) {
+        addLog('error', 'No optimized results to apply. Run optimization first.', optimizeNode.id);
+        return;
+    }
+
+    // Find the connected model node
+    const modelNode = findConnectedModelNode(optimizeNode.id, edges, nodes);
+    if (!modelNode) {
+        addLog('error', 'No model node connected to this optimize node', optimizeNode.id);
+        return;
+    }
+
+    // Find the prompt node
+    const promptNode = findConnectedPromptNode(optimizeNode.id, edges, nodes);
+    if (!promptNode) {
+        addLog('error', 'No prompt node found', optimizeNode.id);
+        return;
+    }
+
+    // Apply the optimized values
+    promptNode.data.systemPrompt = optimizeNode.data.bestPrompt;
+    modelNode.data.temperature = optimizeNode.data.bestHyperparams?.temperature || 0.7;
+
+    // Update displays
+    updateNodeDisplay(promptNode.id);
+    updateNodeDisplay(modelNode.id);
+
+    // Log success
+    addLog('info', `Applied optimized prompt and temperature (${optimizeNode.data.bestHyperparams?.temperature || 0.7}) to model`, optimizeNode.id);
 }
 
 /**
