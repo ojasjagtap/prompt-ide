@@ -172,3 +172,15 @@ ipcMain.handle('file:get-stats', async (event, filePath) => {
         return { success: false };
     }
 });
+
+/**
+ * Delete file
+ */
+ipcMain.handle('file:delete', async (event, filePath) => {
+    try {
+        await fs.unlink(filePath);
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});

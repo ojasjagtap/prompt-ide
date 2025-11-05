@@ -2287,6 +2287,11 @@ async function saveWorkflow() {
         if (result.success) {
             state.lastManualSave = Date.now();
             markWorkflowClean();
+
+            // Delete autosave file since we've saved manually
+            const autosavePath = await ipcRenderer.invoke('file:get-autosave-path');
+            await ipcRenderer.invoke('file:delete', autosavePath);
+
             addLog('info', `Workflow saved to ${state.currentFilePath}`);
             return true;
         } else {
@@ -2360,6 +2365,10 @@ async function openWorkflow() {
         state.currentFilePath = result.filePath;
         state.lastManualSave = Date.now();
         markWorkflowClean();
+
+        // Delete autosave file since we've opened a saved workflow
+        const autosavePath = await ipcRenderer.invoke('file:get-autosave-path');
+        await ipcRenderer.invoke('file:delete', autosavePath);
 
         addLog('info', `Workflow loaded from ${result.filePath}`);
         return true;
@@ -2496,6 +2505,8 @@ async function checkAutoSaveRecovery() {
         const response = confirm('An auto-saved workflow was found. Do you want to restore it?');
 
         if (!response) {
+            // User declined, delete the autosave file
+            await ipcRenderer.invoke('file:delete', autosavePath);
             return;
         }
 
