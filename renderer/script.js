@@ -2145,7 +2145,7 @@ function updateWindowTitle() {
     let title = 'Prompt Goat';
     if (state.currentFilePath) {
         const path = require('path');
-        const fileName = path.basename(state.currentFilePath);
+        const fileName = path.basename(state.currentFilePath).slice(0, -11);
         title = `${fileName}${state.isDirty ? ' *' : ''} - Prompt Goat`;
     } else if (state.isDirty) {
         title = 'Untitled * - Prompt Goat';
