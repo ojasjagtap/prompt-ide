@@ -78,7 +78,13 @@ const state = {
     logsExpandedHeight: 200, // Store the expanded height
 
     // Models
-    availableModels: []
+    availableModels: [],
+
+    // Workflow persistence
+    currentFilePath: null,
+    isDirty: false,
+    lastManualSave: null,
+    autoSaveInterval: null
 };
 
 // ============================================================================
@@ -253,6 +259,7 @@ function createNode(type, worldX, worldY) {
     state.nodes.set(id, node);
     renderNode(id);
     updateRunButton();
+    markWorkflowDirty();
     return id;
 }
 
@@ -277,6 +284,7 @@ function deleteNode(id) {
     }
 
     updateRunButton();
+    markWorkflowDirty();
 }
 
 function bringNodeToFront(id) {
@@ -467,6 +475,7 @@ function createEdge(sourceNodeId, sourcePin, targetNodeId, targetPin) {
 
     renderEdges();
     updateRunButton();
+    markWorkflowDirty();
     return id;
 }
 
@@ -488,6 +497,7 @@ function deleteEdge(id) {
     }
     renderEdges();
     updateRunButton();
+    markWorkflowDirty();
 }
 
 function isValidConnection(sourceNodeId, sourcePin, targetNodeId, targetPin) {
@@ -678,16 +688,19 @@ function updateInspector() {
         document.getElementById('inspectorTitle').addEventListener('input', (e) => {
             node.data.title = e.target.value;
             updateNodeDisplay(node.id);
+            markWorkflowDirty();
         });
 
         document.getElementById('inspectorSystemPrompt').addEventListener('input', (e) => {
             node.data.systemPrompt = e.target.value;
             updateNodeDisplay(node.id);
+            markWorkflowDirty();
         });
 
         document.getElementById('inspectorUserPrompt').addEventListener('input', (e) => {
             node.data.userPrompt = e.target.value;
             updateNodeDisplay(node.id);
+            markWorkflowDirty();
         });
     } else if (node.type === 'model') {
         // Ensure node has provider field (for backward compatibility)
@@ -769,6 +782,7 @@ function updateInspector() {
         document.getElementById('inspectorTitle').addEventListener('input', (e) => {
             node.data.title = e.target.value;
             updateNodeDisplay(node.id);
+            markWorkflowDirty();
         });
 
         document.getElementById('inspectorProvider').addEventListener('change', async (e) => {
@@ -788,21 +802,25 @@ function updateInspector() {
             }
 
             updateNodeDisplay(node.id);
+            markWorkflowDirty();
         });
 
         document.getElementById('inspectorModel').addEventListener('change', (e) => {
             node.data.model = e.target.value;
             updateNodeDisplay(node.id);
+            markWorkflowDirty();
         });
 
         document.getElementById('inspectorTemperature').addEventListener('input', (e) => {
             node.data.temperature = parseFloat(e.target.value);
             updateNodeDisplay(node.id);
+            markWorkflowDirty();
         });
 
         document.getElementById('inspectorMaxTokens').addEventListener('input', (e) => {
             node.data.maxTokens = parseInt(e.target.value);
             updateNodeDisplay(node.id);
+            markWorkflowDirty();
         });
 
         // Run button
@@ -1156,6 +1174,31 @@ function onNodeItemDragStart(e) {
 }
 
 function onKeyDown(e) {
+    // Check for keyboard shortcuts with Ctrl/Cmd modifier
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    const modifier = isMac ? e.metaKey : e.ctrlKey;
+
+    // Handle Ctrl+S / Cmd+S (Save)
+    if (modifier && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        saveWorkflow();
+        return;
+    }
+
+    // Handle Ctrl+O / Cmd+O (Open)
+    if (modifier && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        openWorkflow();
+        return;
+    }
+
+    // Handle Ctrl+N / Cmd+N (New)
+    if (modifier && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        newWorkflow();
+        return;
+    }
+
     // Only allow delete when canvas or nodes are focused, not when typing in inputs
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
         return;
@@ -2074,6 +2117,389 @@ async function removeOpenAISettings() {
 }
 
 // ============================================================================
+// WORKFLOW PERSISTENCE
+// ============================================================================
+
+const { ipcRenderer } = require('electron');
+
+/**
+ * Mark workflow as dirty (unsaved changes)
+ */
+function markWorkflowDirty() {
+    state.isDirty = true;
+    updateWindowTitle();
+}
+
+/**
+ * Mark workflow as clean (saved)
+ */
+function markWorkflowClean() {
+    state.isDirty = false;
+    updateWindowTitle();
+}
+
+/**
+ * Update window title to show file name and dirty status
+ */
+function updateWindowTitle() {
+    let title = 'Prompt Goat';
+    if (state.currentFilePath) {
+        const path = require('path');
+        const fileName = path.basename(state.currentFilePath);
+        title = `${fileName}${state.isDirty ? ' *' : ''} - Prompt Goat`;
+    } else if (state.isDirty) {
+        title = 'Untitled * - Prompt Goat';
+    }
+    document.title = title;
+}
+
+/**
+ * Serialize workflow to JSON
+ */
+function serializeWorkflow() {
+    // Convert Map to array for serialization
+    const nodesArray = Array.from(state.nodes.entries()).map(([id, node]) => ({
+        id,
+        ...node
+    }));
+
+    const edgesArray = Array.from(state.edges.entries()).map(([id, edge]) => ({
+        id,
+        ...edge
+    }));
+
+    return {
+        version: 1,
+        viewport: state.viewport,
+        nodes: nodesArray,
+        edges: edgesArray,
+        nodeIdCounter: state.nodeIdCounter,
+        edgeIdCounter: state.edgeIdCounter,
+        maxZIndex: state.maxZIndex
+    };
+}
+
+/**
+ * Deserialize workflow from JSON
+ */
+function deserializeWorkflow(data) {
+    // Validate version
+    if (!data.version || data.version !== 1) {
+        throw new Error('Unsupported workflow version');
+    }
+
+    // Clear current state
+    state.nodes.clear();
+    state.edges.clear();
+
+    // Restore viewport
+    if (data.viewport) {
+        state.viewport = { ...data.viewport };
+    }
+
+    // Restore counters
+    state.nodeIdCounter = data.nodeIdCounter || 1;
+    state.edgeIdCounter = data.edgeIdCounter || 1;
+    state.maxZIndex = data.maxZIndex || 1;
+
+    // Restore nodes
+    if (data.nodes && Array.isArray(data.nodes)) {
+        data.nodes.forEach(nodeData => {
+            const { id, ...node } = nodeData;
+            state.nodes.set(id, node);
+        });
+    }
+
+    // Restore edges
+    if (data.edges && Array.isArray(data.edges)) {
+        data.edges.forEach(edgeData => {
+            const { id, ...edge } = edgeData;
+            state.edges.set(id, edge);
+        });
+    }
+
+    // Clear selection
+    state.selectedNodeId = null;
+    state.selectedEdgeId = null;
+
+    // Re-render everything
+    renderAll();
+    updateInspector();
+    updateRunButton();
+}
+
+/**
+ * Save workflow to file
+ */
+async function saveWorkflow() {
+    try {
+        // If no current file path, use Save As
+        if (!state.currentFilePath) {
+            return await saveWorkflowAs();
+        }
+
+        // Serialize workflow
+        const data = serializeWorkflow();
+        const jsonContent = JSON.stringify(data, null, 2);
+
+        // Write to file
+        const result = await ipcRenderer.invoke('file:write', state.currentFilePath, jsonContent);
+
+        if (result.success) {
+            state.lastManualSave = Date.now();
+            markWorkflowClean();
+            addLog('info', `Workflow saved to ${state.currentFilePath}`);
+            return true;
+        } else {
+            throw new Error(result.error || 'Failed to write file');
+        }
+    } catch (error) {
+        addLog('error', `Failed to save workflow: ${error.message}`);
+        alert(`Failed to save workflow: ${error.message}`);
+        return false;
+    }
+}
+
+/**
+ * Save workflow as (with file dialog)
+ */
+async function saveWorkflowAs() {
+    try {
+        // Show save dialog
+        const result = await ipcRenderer.invoke('dialog:save-file', state.currentFilePath);
+
+        if (!result.success) {
+            return false; // User canceled
+        }
+
+        // Update current file path
+        state.currentFilePath = result.filePath;
+
+        // Save to the new path
+        return await saveWorkflow();
+    } catch (error) {
+        addLog('error', `Failed to save workflow: ${error.message}`);
+        alert(`Failed to save workflow: ${error.message}`);
+        return false;
+    }
+}
+
+/**
+ * Open workflow from file
+ */
+async function openWorkflow() {
+    try {
+        // Check for unsaved changes
+        if (state.isDirty) {
+            const response = confirm('You have unsaved changes. Do you want to discard them and open a new workflow?');
+            if (!response) {
+                return false;
+            }
+        }
+
+        // Show open dialog
+        const result = await ipcRenderer.invoke('dialog:open-file');
+
+        if (!result.success) {
+            return false; // User canceled
+        }
+
+        // Read file
+        const fileResult = await ipcRenderer.invoke('file:read', result.filePath);
+
+        if (!fileResult.success) {
+            throw new Error(fileResult.error || 'Failed to read file');
+        }
+
+        // Parse JSON
+        const data = JSON.parse(fileResult.content);
+
+        // Deserialize and load
+        deserializeWorkflow(data);
+
+        // Update state
+        state.currentFilePath = result.filePath;
+        state.lastManualSave = Date.now();
+        markWorkflowClean();
+
+        addLog('info', `Workflow loaded from ${result.filePath}`);
+        return true;
+    } catch (error) {
+        addLog('error', `Failed to open workflow: ${error.message}`);
+        alert(`Failed to open workflow: ${error.message}`);
+        return false;
+    }
+}
+
+/**
+ * Create new workflow (clear canvas)
+ * Note: This only clears the in-memory state. Any previously saved workflow
+ * files on disk remain untouched and can be re-opened later.
+ */
+async function newWorkflow() {
+    try {
+        // Check for unsaved changes
+        if (state.isDirty) {
+            const response = confirm('You have unsaved changes. Do you want to discard them and create a new workflow?');
+            if (!response) {
+                return false;
+            }
+        }
+
+        // Clear all nodes and edges from memory (does not affect saved files)
+        state.nodes.clear();
+        state.edges.clear();
+
+        // Reset counters
+        state.nodeIdCounter = 1;
+        state.edgeIdCounter = 1;
+        state.maxZIndex = 1;
+
+        // Reset viewport
+        state.viewport = {
+            scale: 1.0,
+            tx: 0,
+            ty: 0
+        };
+
+        // Reset selection
+        state.selectedNodeId = null;
+        state.selectedEdgeId = null;
+
+        // Reset file path
+        state.currentFilePath = null;
+        state.lastManualSave = null;
+
+        // Clear logs
+        state.logs = [];
+        state.currentRunId = null;
+
+        // Mark as clean
+        markWorkflowClean();
+
+        // Clear the DOM - remove all node elements from the canvas
+        const nodesLayer = document.getElementById('nodesLayer');
+        if (nodesLayer) {
+            nodesLayer.innerHTML = '';
+        }
+
+        // Re-render everything
+        renderAll();
+        updateInspector();
+        updateRunButton();
+        updateLogsUI();
+
+        addLog('info', 'New workflow created');
+        return true;
+    } catch (error) {
+        addLog('error', `Failed to create new workflow: ${error.message}`);
+        alert(`Failed to create new workflow: ${error.message}`);
+        return false;
+    }
+}
+
+/**
+ * Auto-save workflow to temp location
+ */
+async function autoSaveWorkflow() {
+    // Only auto-save if there are changes and nodes exist
+    if (!state.isDirty || state.nodes.size === 0) {
+        return;
+    }
+
+    try {
+        // Get autosave path
+        const autosavePath = await ipcRenderer.invoke('file:get-autosave-path');
+
+        // Serialize workflow
+        const data = serializeWorkflow();
+        const jsonContent = JSON.stringify(data, null, 2);
+
+        // Write to autosave file
+        const result = await ipcRenderer.invoke('file:write', autosavePath, jsonContent);
+
+        if (result.success) {
+            // Silent auto-save, don't log
+        }
+    } catch (error) {
+        // Silent failure for auto-save
+        console.error('Auto-save failed:', error);
+    }
+}
+
+/**
+ * Check for and offer to restore autosave
+ */
+async function checkAutoSaveRecovery() {
+    try {
+        const autosavePath = await ipcRenderer.invoke('file:get-autosave-path');
+
+        // Check if autosave file exists
+        const exists = await ipcRenderer.invoke('file:exists', autosavePath);
+
+        if (!exists) {
+            return;
+        }
+
+        // Get autosave file stats
+        const stats = await ipcRenderer.invoke('file:get-stats', autosavePath);
+
+        if (!stats.success) {
+            return;
+        }
+
+        // Check if autosave is newer than last manual save (or if no manual save)
+        if (state.lastManualSave && stats.mtime <= state.lastManualSave) {
+            return;
+        }
+
+        // Ask user if they want to restore
+        const response = confirm('An auto-saved workflow was found. Do you want to restore it?');
+
+        if (!response) {
+            return;
+        }
+
+        // Read autosave file
+        const fileResult = await ipcRenderer.invoke('file:read', autosavePath);
+
+        if (!fileResult.success) {
+            throw new Error('Failed to read autosave file');
+        }
+
+        // Parse and load
+        const data = JSON.parse(fileResult.content);
+        deserializeWorkflow(data);
+
+        // Mark as dirty since it's from autosave
+        markWorkflowDirty();
+
+        addLog('info', 'Workflow restored from auto-save');
+    } catch (error) {
+        console.error('Auto-save recovery failed:', error);
+        addLog('warn', 'Failed to restore auto-save');
+    }
+}
+
+/**
+ * Start auto-save interval
+ */
+function startAutoSave() {
+    // Auto-save every 2 minutes (120000 ms)
+    state.autoSaveInterval = setInterval(autoSaveWorkflow, 120000);
+}
+
+/**
+ * Stop auto-save interval
+ */
+function stopAutoSave() {
+    if (state.autoSaveInterval) {
+        clearInterval(state.autoSaveInterval);
+        state.autoSaveInterval = null;
+    }
+}
+
+// ============================================================================
 // INITIALIZATION
 // ============================================================================
 
@@ -2117,6 +2543,11 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Run button
     document.getElementById('runButton').addEventListener('click', runFlow);
     document.getElementById('cancelButton').addEventListener('click', cancelRun);
+
+    // File operation buttons
+    document.getElementById('newButton').addEventListener('click', newWorkflow);
+    document.getElementById('openButton').addEventListener('click', openWorkflow);
+    document.getElementById('saveButton').addEventListener('click', saveWorkflow);
 
     // Settings button
     document.getElementById('settingsButton').addEventListener('click', openSettingsModal);
@@ -2183,6 +2614,12 @@ document.addEventListener('DOMContentLoaded', async function() {
     window.addEventListener('resize', () => {
         renderAll();
     });
+
+    // Check for auto-save recovery
+    await checkAutoSaveRecovery();
+
+    // Start auto-save interval
+    startAutoSave();
 });
 
 // ============================================================================
