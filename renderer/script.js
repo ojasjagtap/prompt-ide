@@ -426,6 +426,20 @@ function renderNode(id) {
     node.height = actualHeight;
 }
 
+function updateNodePosition(id) {
+    const node = state.nodes.get(id);
+    if (!node) return;
+
+    const nodeEl = document.getElementById(id);  // Use id parameter, not node.id
+    if (!nodeEl) return;
+
+    // Only update position and transform (no innerHTML replacement)
+    const { x: screenX, y: screenY } = worldToScreen(node.x, node.y);
+    nodeEl.style.left = `${screenX}px`;
+    nodeEl.style.top = `${screenY}px`;
+    nodeEl.style.transform = `scale(${state.viewport.scale})`;
+}
+
 function updateNodeDisplay(id) {
     renderNode(id);
     updateEdges();
@@ -1017,7 +1031,18 @@ function onCanvasMouseMove(e) {
         if (node) {
             node.x = world.x - state.dragOffsetX;
             node.y = world.y - state.dragOffsetY;
-            updateNodeDisplay(node.id);
+
+            // Directly update DOM element position during drag
+            const nodeEl = document.getElementById(state.draggedNodeId);
+            if (nodeEl) {
+                const { x: screenX, y: screenY } = worldToScreen(node.x, node.y);
+                nodeEl.style.left = screenX + 'px';
+                nodeEl.style.top = screenY + 'px';
+                nodeEl.style.width = node.width + 'px';
+                nodeEl.style.transform = 'scale(' + state.viewport.scale + ')';
+                nodeEl.style.zIndex = node.zIndex;
+            }
+
             updateEdges();
         }
     } else if (state.isWiring) {
@@ -1062,6 +1087,12 @@ function onCanvasMouseUp(e) {
     }
 
     state.isPanning = false;
+
+    // Mark workflow as dirty if a node was dragged
+    if (state.isDraggingNode && state.draggedNodeId) {
+        markWorkflowDirty();
+    }
+
     state.isDraggingNode = false;
     state.draggedNodeId = null;
     document.body.classList.remove('dragging', 'panning');
@@ -2192,6 +2223,12 @@ function deserializeWorkflow(data) {
     state.nodes.clear();
     state.edges.clear();
 
+    // Clear the DOM - remove all old node elements from the canvas
+    const nodesLayer = document.getElementById('nodesLayer');
+    if (nodesLayer) {
+        nodesLayer.innerHTML = '';
+    }
+
     // Restore viewport
     if (data.viewport) {
         state.viewport = { ...data.viewport };
@@ -2205,7 +2242,9 @@ function deserializeWorkflow(data) {
     // Restore nodes
     if (data.nodes && Array.isArray(data.nodes)) {
         data.nodes.forEach(nodeData => {
-            const { id, ...node } = nodeData;
+            const { id, ...nodeRest } = nodeData;
+            // Include id in the node object for consistency with newly created nodes
+            const node = { id, ...nodeRest };
             state.nodes.set(id, node);
         });
     }
