@@ -1,41 +1,149 @@
-# mvp product definition
+# Prompt IDE
 
-we want a basic version of the app to test all major tech solutions. feel free to experiment and make mistakes.
-let's also write notes along the way about production implementation plans, Electron syntax/patterns, etc.
+A visual flow-based IDE for prompt engineering, testing, and optimization with Large Language Models.
 
-test sys prompt: You are an enthusiastic biology teacher named Thomas. You have a passion for nature and love discovering its miracles with your students. Your communication style is friendly and informative.
+![Demo](images/demo.png)
 
-## core features (baseline)
+## Overview
 
-1. **prompt input & execution**
-   - basic UI for build and test pages 
-   - run prompt against one or more llms (via api key or local ollama)  
-   - display multiple outputs side by side  
+Prompt IDE is a cross-platform desktop application that provides a node-based interface for building, testing, and optimizing prompts across multiple AI model providers. Design complex LLM workflows visually, test prompts with different models, and automatically optimize them using evolutionary algorithms.
 
-2. **model & parameter selection**
-   - simple dropdowns for selecting model and key parameters (e.g., temperature, max tokens)  
-   - configurations persist only for the current session (no need for full library yet)  
+## Features
 
-3. **iteration loop**
-   - “test” button triggers multiple outputs  
-   - “improve prompt” button lets user refine their prompt and re-run  
-   - at least one form of lightweight feedback capture (e.g. mark best output or Promptly type thing)  
+### Visual Flow Editor
+- Drag-and-drop node-based canvas with pan and zoom
+- Connect nodes to build multi-step LLM workflows
+- Real-time execution status indicators
+- Multi-node selection and manipulation
 
-4. **export/copy config**
-   - copy the working prompt + parameters as a json snippet for reuse  
+### Node Types
+- **Prompt Node** - Define system and user prompts
+- **Model Node** - Execute LLM inference with configurable parameters
+- **Tool Node** - Create custom JavaScript tools for LLMs to call
+- **Evolutionary Optimize Node** - Automatically improve prompts using genetic algorithms
 
-## non-functional mvp goals
+### Multi-Provider Support
+- **Ollama** - Run local models (default: localhost:11434)
+- **OpenAI** - Access GPT models via API
+- Provider-agnostic architecture for easy extensibility
 
-- cross-platform build: run on windows and mac at least  
-- secure api key input: user provides their own api key, stored only locally 
-- minimal ui/ux polish: clean, developer-oriented interface (split panes for prompt, outputs, and parameters. side panel for history via file system)
+### Tool Calling System
+- Define custom tools with JSON schemas
+- JavaScript-based tool implementation
+- Sandboxed execution in web workers
+- Automatic tool registration with compatible models
 
-# TODOs
+### Evolutionary Optimization
+- Genetic algorithm-based prompt optimization
+- Multiple evaluation metrics (BLEU score, Levenshtein distance)
+- Configurable hyperparameters (population size, mutation rate, generations)
+- Test dataset evaluation with real-time progress tracking
 
-1. clearly configure build vs test page and incorporate all major params for [generation](https://ollama.readthedocs.io/en/modelfile/#build-from-a-gguf-file) 
-2. allow users to install additional ollama models
-3. enable secure api calls with user inputted API keys
-4. allow users to copy config for a certain model's config based on its output. enable side by side experiments
-5. improve prompt via Promptly.
-6. generate embeddings and implement one prompt improving strategy from arxiv.
-7. rethink UI based on build vs. test
+### Workflow Management
+- Save and load workflows (.promptflow files)
+- Auto-save functionality with recovery
+- Keyboard shortcuts (Ctrl+S, Ctrl+O, Ctrl+N)
+
+### Security
+- Encrypted API key storage using Electron's safeStorage
+- Sandboxed tool execution
+- No credentials stored in plaintext
+
+## Technology Stack
+
+- **Electron** - Cross-platform desktop framework
+- **Node.js** - JavaScript runtime
+- **Vanilla JavaScript** - No external UI frameworks
+- **HTML5 Canvas & SVG** - Visual rendering
+- **Web Workers** - Isolated tool execution
+
+## File Structure
+
+```
+prompt-ide/
+├── main/                    # Electron main process
+│   ├── index.js             # Window creation, IPC handlers
+│   ├── preload.js           # Security preload script
+│   └── secureStorage.js     # Encrypted credential storage
+├── renderer/                # UI and application logic
+│   ├── index.html           # Main UI structure
+│   ├── main.css             # Application styles
+│   ├── script.js            # Core app logic and state
+│   ├── model-adapters.js    # Provider-specific adapters
+│   ├── evolutionary-optimize-script.js  # Optimization algorithms
+│   ├── tool-script.js       # Tool node implementation
+│   └── tool-worker.js       # Sandboxed tool execution
+├── services/                # Business logic
+│   ├── modelService.js      # Model API interactions
+│   ├── providerRegistry.js  # Provider management
+│   └── config.js            # Configuration
+├── images/                  # Screenshots and assets
+└── package.json             # Dependencies and metadata
+```
+
+## Getting Started
+
+### Prerequisites
+- Node.js (v14 or higher)
+- npm or yarn
+- Ollama (optional, for local models)
+
+### Installation
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd prompt-ide
+
+# Install dependencies
+npm install
+
+# Run the application
+npm start
+```
+
+### Configuration
+
+1. **Ollama Setup** (optional)
+   - Install Ollama from [ollama.ai](https://ollama.ai)
+   - Ollama runs on localhost:11434 by default
+   - Pull models: `ollama pull llama2`
+
+2. **OpenAI Setup** (optional)
+   - Open Settings in the application
+   - Enter your OpenAI API key
+   - Keys are encrypted and stored locally
+
+### Usage
+
+1. **Create a Workflow**
+   - Add nodes from the top toolbar
+   - Connect nodes by dragging from output to input ports
+   - Configure nodes using the inspector panel
+
+2. **Run a Prompt**
+   - Connect a Prompt node to a Model node
+   - Set your prompt text and model parameters
+   - Click "Run Flow" to execute
+
+3. **Optimize Prompts**
+   - Add an Evolutionary Optimize node
+   - Define test cases and evaluation metrics
+   - Configure optimization parameters
+   - Run to automatically improve your prompt
+
+## Use Cases
+
+- Iterative prompt refinement with visual feedback
+- Model comparison across providers
+- Complex multi-step LLM workflows
+- Tool development and testing for LLM function calling
+- Automated prompt optimization
+
+## Development
+
+Built with:
+- Electron 38.2.0
+- CommonJS modules
+- Native HTML5 Canvas and SVG rendering
+- No bundler or transpiler required
