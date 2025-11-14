@@ -92,7 +92,7 @@ prompt-ide/
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/ojasjagtap/prompt-ide.git
 cd prompt-ide
 
 # Install dependencies
