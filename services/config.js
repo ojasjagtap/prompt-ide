@@ -7,7 +7,7 @@
 
 const config = {
     // App settings
-    appName: 'Prompt Goat',
+    appName: 'Prompt IDE',
     version: '1.0.0',
     
     // Window settings

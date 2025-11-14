@@ -1,5 +1,5 @@
 /**
- * Prompt Goat - Flow UI MVP
+ * Prompt IDE - Flow UI MVP
  * Complete implementation with nodes, wiring, inspector, logs, and run engine
  */
 
@@ -2173,13 +2173,13 @@ function markWorkflowClean() {
  * Update window title to show file name and dirty status
  */
 function updateWindowTitle() {
-    let title = 'Prompt Goat';
+    let title = 'Prompt IDE';
     if (state.currentFilePath) {
         const path = require('path');
         const fileName = path.basename(state.currentFilePath).slice(0, -11);
-        title = `${fileName}${state.isDirty ? ' *' : ''} - Prompt Goat`;
+        title = `${fileName}${state.isDirty ? ' *' : ''} - Prompt IDE`;
     } else if (state.isDirty) {
-        title = 'Untitled * - Prompt Goat';
+        title = 'Untitled * - Prompt IDE';
     }
     document.title = title;
 }
