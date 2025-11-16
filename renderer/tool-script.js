@@ -49,13 +49,15 @@ function createToolNodeData() {
  */
 function renderToolNode(node, connectedModels) {
     const connectedCount = connectedModels.length;
-    const collapseIcon = node.collapsed ? '▶' : '▼';
+    const collapseIconId = node.collapsed ? 'icon-chevron-right' : 'icon-chevron-down';
 
     return `
         <div class="node-header">
             <div class="header-top">
                 <div class="header-left">
-                    <span class="collapse-toggle" data-node-id="${node.id}">${collapseIcon}</span>
+                    <svg class="collapse-toggle" data-node-id="${node.id}" width="12" height="12">
+                        <use href="#${collapseIconId}"></use>
+                    </svg>
                     <span class="node-title">${node.data.name}</span>
                 </div>
                 <span class="node-status-badge">${node.status}</span>

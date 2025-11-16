@@ -333,12 +333,14 @@ function renderNode(id) {
 
     // Content
     if (node.type === 'prompt') {
-        const collapseIcon = node.collapsed ? '▶' : '▼';
+        const collapseIconId = node.collapsed ? 'icon-chevron-right' : 'icon-chevron-down';
         nodeEl.innerHTML = `
             <div class="node-header">
                 <div class="header-top">
                     <div class="header-left">
-                        <span class="collapse-toggle" data-node-id="${id}">${collapseIcon}</span>
+                        <svg class="collapse-toggle" data-node-id="${id}" width="12" height="12">
+                            <use href="#${collapseIconId}"></use>
+                        </svg>
                         <span class="node-title">${node.data.title}</span>
                     </div>
                     <span class="node-status-badge">${node.status}</span>
@@ -359,12 +361,14 @@ function renderNode(id) {
             </div>
         `;
     } else if (node.type === 'model') {
-        const collapseIcon = node.collapsed ? '▶' : '▼';
+        const collapseIconId = node.collapsed ? 'icon-chevron-right' : 'icon-chevron-down';
         nodeEl.innerHTML = `
             <div class="node-header">
                 <div class="header-top">
                     <div class="header-left">
-                        <span class="collapse-toggle" data-node-id="${id}">${collapseIcon}</span>
+                        <svg class="collapse-toggle" data-node-id="${id}" width="12" height="12">
+                            <use href="#${collapseIconId}"></use>
+                        </svg>
                         <span class="node-title">${node.data.title}</span>
                     </div>
                     <span class="node-status-badge">${node.status}</span>
