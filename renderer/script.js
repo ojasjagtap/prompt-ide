@@ -1156,7 +1156,11 @@ function onCollapseToggleClick(e) {
     e.stopPropagation();
     e.preventDefault();
 
-    const nodeId = e.target.dataset.nodeId;
+    // Find the SVG element with data-node-id (might click on SVG or child elements)
+    const collapseToggle = e.target.closest('.collapse-toggle');
+    if (!collapseToggle) return;
+
+    const nodeId = collapseToggle.dataset.nodeId;
     const node = state.nodes.get(nodeId);
     if (!node) return;
 
