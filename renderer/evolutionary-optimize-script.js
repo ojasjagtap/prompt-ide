@@ -142,10 +142,14 @@ function createEvolutionaryOptimizeNodeData() {
  * Render evolutionary optimize node HTML
  */
 function renderEvolutionaryOptimizeNode(node, edges, nodes) {
+    const collapseIcon = node.collapsed ? '▶' : '▼';
     return `
         <div class="node-header">
             <div class="header-top">
-                <span class="node-title">${node.data.title}</span>
+                <div class="header-left">
+                    <span class="collapse-toggle" data-node-id="${node.id}">${collapseIcon}</span>
+                    <span class="node-title">${node.data.title}</span>
+                </div>
                 <span class="node-status-badge">${node.status}</span>
             </div>
             <div class="header-bottom">
@@ -156,7 +160,7 @@ function renderEvolutionaryOptimizeNode(node, edges, nodes) {
                 <div class="pin-spacer"></div>
             </div>
         </div>
-        <div class="node-body">
+        <div class="node-body" style="display: ${node.collapsed ? 'none' : 'block'}">
             <div class="node-description">Evolutionary prompt optimization</div>
             <div class="node-output-viewer">${node.data.bestPrompt}</div>
         </div>

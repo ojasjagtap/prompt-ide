@@ -279,6 +279,31 @@ body.panning {
     align-items: center;
 }
 
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.collapse-toggle {
+    cursor: pointer;
+    user-select: none;
+    font-size: 10px;
+    color: #aaa;
+    width: 14px;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s, transform 0.1s;
+    flex-shrink: 0;
+}
+
+.collapse-toggle:hover {
+    color: #fff;
+    transform: scale(1.2);
+}
+
 .header-bottom {
     display: flex;
     justify-content: space-between;

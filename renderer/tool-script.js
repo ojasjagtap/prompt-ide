@@ -49,11 +49,15 @@ function createToolNodeData() {
  */
 function renderToolNode(node, connectedModels) {
     const connectedCount = connectedModels.length;
+    const collapseIcon = node.collapsed ? '▶' : '▼';
 
     return `
         <div class="node-header">
             <div class="header-top">
-                <span class="node-title">${node.data.name}</span>
+                <div class="header-left">
+                    <span class="collapse-toggle" data-node-id="${node.id}">${collapseIcon}</span>
+                    <span class="node-title">${node.data.name}</span>
+                </div>
                 <span class="node-status-badge">${node.status}</span>
             </div>
             <div class="header-bottom">
@@ -64,7 +68,7 @@ function renderToolNode(node, connectedModels) {
                 </div>
             </div>
         </div>
-        <div class="node-body">
+        <div class="node-body" style="display: ${node.collapsed ? 'none' : 'block'}">
             <div class="node-description">${node.data.description || 'No description'}</div>
         </div>
     `;

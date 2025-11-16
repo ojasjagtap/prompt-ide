@@ -232,6 +232,7 @@ function createNode(type, worldX, worldY) {
         height: NODE_MIN_HEIGHT,
         status: 'idle', // idle | running | success | error
         zIndex: state.maxZIndex++, // Assign and increment z-index
+        collapsed: false, // Track collapse state
         data: {}
     };
 
@@ -332,10 +333,14 @@ function renderNode(id) {
 
     // Content
     if (node.type === 'prompt') {
+        const collapseIcon = node.collapsed ? '▶' : '▼';
         nodeEl.innerHTML = `
             <div class="node-header">
                 <div class="header-top">
-                    <span class="node-title">${node.data.title}</span>
+                    <div class="header-left">
+                        <span class="collapse-toggle" data-node-id="${id}">${collapseIcon}</span>
+                        <span class="node-title">${node.data.title}</span>
+                    </div>
                     <span class="node-status-badge">${node.status}</span>
                 </div>
                 <div class="header-bottom">
@@ -346,7 +351,7 @@ function renderNode(id) {
                     </div>
                 </div>
             </div>
-            <div class="node-body">
+            <div class="node-body" style="display: ${node.collapsed ? 'none' : 'block'}">
                 <div class="node-description">System context and instructions for the model</div>
                 <div class="node-output-viewer">${node.data.systemPrompt || ''}</div>
                 <div class="node-description" style="margin-top: 10px;">User input that will be sent to the model</div>
@@ -354,10 +359,14 @@ function renderNode(id) {
             </div>
         `;
     } else if (node.type === 'model') {
+        const collapseIcon = node.collapsed ? '▶' : '▼';
         nodeEl.innerHTML = `
             <div class="node-header">
                 <div class="header-top">
-                    <span class="node-title">${node.data.title}</span>
+                    <div class="header-left">
+                        <span class="collapse-toggle" data-node-id="${id}">${collapseIcon}</span>
+                        <span class="node-title">${node.data.title}</span>
+                    </div>
                     <span class="node-status-badge">${node.status}</span>
                 </div>
                 <div class="header-bottom">
@@ -379,7 +388,7 @@ function renderNode(id) {
                     <div class="pin-spacer"></div>
                 </div>
             </div>
-            <div class="node-body">
+            <div class="node-body" style="display: ${node.collapsed ? 'none' : 'block'}">
                 <div class="node-description">Generates text using the selected language model</div>
                 <div class="node-settings">
                     <div class="setting-row">
@@ -416,6 +425,12 @@ function renderNode(id) {
     pins.forEach(pin => {
         pin.addEventListener('mousedown', onPinMouseDown);
     });
+
+    // Collapse toggle listener - need to re-add since innerHTML replaces content
+    const collapseToggle = nodeEl.querySelector('.collapse-toggle');
+    if (collapseToggle) {
+        collapseToggle.addEventListener('click', onCollapseToggleClick);
+    }
 
     // Measure and store the actual rendered height
     // We need to temporarily reset transform to get accurate measurements
@@ -1131,6 +1146,27 @@ function onNodeMouseDown(e) {
     state.dragOffsetX = world.x - node.x;
     state.dragOffsetY = world.y - node.y;
     document.body.classList.add('dragging');
+}
+
+function onCollapseToggleClick(e) {
+    e.stopPropagation();
+    e.preventDefault();
+
+    const nodeId = e.target.dataset.nodeId;
+    const node = state.nodes.get(nodeId);
+    if (!node) return;
+
+    // Toggle collapsed state
+    node.collapsed = !node.collapsed;
+
+    // Re-render the node to update the collapse icon and body visibility
+    renderNode(nodeId);
+
+    // Update edges since node height may have changed
+    updateEdges();
+
+    // Mark workflow as dirty since we changed the node state
+    markWorkflowDirty();
 }
 
 function onNodeClick(e) {
