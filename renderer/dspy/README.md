@@ -1,204 +1,467 @@
-# DSPy Python Bridge
+# DSPy Optimization Node
 
-This directory contains the Python bridge components for DSPy optimization integration.
+Visual prompt optimization using Stanford NLP's DSPy library.
 
-## Architecture
+## What is DSPy?
+
+**DSPy** (Declarative Self-improving Python) is a framework from Stanford NLP for programmatically optimizing prompts and language model pipelines. Instead of manually tweaking prompts through trial and error, DSPy uses algorithms to automatically find better prompts based on your training data.
+
+### How DSPy Works
+
+1. **You provide examples**: Input/output pairs showing what you want the model to do
+2. **DSPy generates variations**: It creates different prompt versions and few-shot examples
+3. **It evaluates each**: Tests them against your data using a metric
+4. **Returns the best**: Gives you the optimized prompt that performed best
+
+### Key Concepts
+
+- **Signatures**: Define input → output (e.g., "question → answer")
+- **Modules**: Building blocks like `Predict` or `ChainOfThought`
+- **Optimizers**: Algorithms that find better prompts (BootstrapFewShot, MIPRO)
+- **Metrics**: Functions that score how good an output is
+
+### Why Use DSPy?
+
+| Manual Prompting | DSPy Optimization |
+|------------------|-------------------|
+| Trial and error | Data-driven |
+| Time-consuming | Automated |
+| Subjective | Measurable |
+| Hard to improve | Iterative |
+
+---
+
+## File Structure
 
 ```
-Node.js (Electron Renderer)
-        ↓
-dspy-worker.js (Bridge)
-        ↓
-Python Subprocess
-        ↓
-dspy_optimizer.py (DSPy Integration)
-        ↓
-DSPy Library
+renderer/
+├── dspy-worker.js           # Node.js ↔ Python bridge
+├── dspy-optimize-script.js  # Node UI implementation
+└── dspy/
+    ├── dspy_optimizer.py    # Python worker (runs DSPy)
+    └── requirements.txt     # Python dependencies
 ```
 
-## Components
+---
 
-### 1. `dspy-worker.js` (Node.js Bridge)
-Located in `renderer/dspy-worker.js`
+## File Descriptions
 
-**Functions:**
-- `executeDSPyOptimization(config, onProgress, signal)` - Main function to run DSPy optimization
-- `checkDSPyEnvironment()` - Check if Python and DSPy are installed
-- `installDSPy(onProgress)` - Install DSPy via pip
-- `validateDSPyConfig(config)` - Validate configuration before sending to Python
+### `dspy-worker.js` (370 lines)
+**Purpose**: Bridge between Node.js (Electron) and Python
 
-**Communication Protocol:**
-- **Input**: JSON config via stdin
-- **Output**: JSON messages via stdout (line-delimited)
+**What it does**:
+- Spawns Python subprocess
+- Sends configuration via stdin (JSON)
+- Receives progress updates via stdout
+- Handles errors and cancellation
 
-**Message Types:**
+**Key functions**:
 ```javascript
-// Progress update
-{ type: 'progress', message: 'Starting optimization...', data: {...} }
-
-// Success result
-{ type: 'success', validation_score: 0.85, optimized_signature: {...}, ... }
-
-// Error
-{ type: 'error', message: 'Error description', traceback: '...' }
+executeDSPyOptimization(config, onProgress, signal)  // Main optimization
+checkDSPyEnvironment()                                // Check Python/DSPy
+validateDSPyConfig(config)                            // Validate before run
 ```
 
-### 2. `dspy_optimizer.py` (Python Worker)
-**Status**: To be implemented
+### `dspy-optimize-script.js` (850 lines)
+**Purpose**: Node UI for visual editor
 
-This script will:
-- Read configuration from stdin
-- Configure DSPy language models
-- Prepare datasets
-- Run optimization (BootstrapFewShot, MIPRO, etc.)
-- Stream progress updates
-- Return results
+**What it does**:
+- Creates node data structure
+- Renders node HTML on canvas
+- Builds inspector UI (configuration panel)
+- Handles connections and validation
+- Executes optimization via bridge
+- Displays results
 
-### 3. `requirements.txt`
-Python dependencies:
+**Key functions**:
+```javascript
+createDSPyOptimizeNodeData()          // Initialize node
+renderDSPyOptimizeNode()              // Draw on canvas
+renderDSPyOptimizeInspector()         // Configuration UI
+isValidDSPyOptimizeConnection()       // Connection rules
+executeDSPyOptimizeNode()             // Run optimization
+```
+
+### `dspy/dspy_optimizer.py` (678 lines)
+**Purpose**: Python worker that runs actual DSPy
+
+**What it does**:
+- Configures language models (Ollama/OpenAI/Anthropic)
+- Prepares datasets (converts to DSPy format)
+- Creates metrics (exact_match, contains, custom)
+- Runs optimizers (BootstrapFewShot, MIPRO)
+- Extracts results (instructions, demos)
+- Saves compiled programs
+
+**Workflow**:
+```python
+1. Read config from stdin
+2. Setup language model
+3. Prepare dataset
+4. Create metric
+5. Run optimizer
+6. Evaluate results
+7. Return via stdout
+```
+
+### `dspy/requirements.txt`
+**Purpose**: Python dependencies
+
 ```
 dspy-ai>=2.6.0
 cloudpickle>=2.0.0
 ```
 
-Install with:
-```bash
-pip install -r requirements.txt
+Install with: `pip install -r renderer/dspy/requirements.txt`
+
+---
+
+## Integration Points in script.js
+
+The DSPy node is integrated into the main app via these additions:
+
+### 1. Import (line 24-30)
+```javascript
+const {
+    createDSPyOptimizeNodeData,
+    renderDSPyOptimizeNode,
+    renderDSPyOptimizeInspector,
+    isValidDSPyOptimizeConnection,
+    executeDSPyOptimizeNode
+} = require('./dspy-optimize-script');
 ```
 
-## Configuration Object
-
-The bridge expects a configuration object with the following structure:
-
+### 2. Node Creation (line 263-264)
 ```javascript
-{
-  // Language model configuration
-  model_config: {
-    provider: 'ollama' | 'openai',
-    model: 'llama3.2:1b',
-    api_key: '' // For OpenAI
-  },
+} else if (type === 'dspy-optimize') {
+    node.data = createDSPyOptimizeNodeData();
+```
 
-  // Optimizer selection
-  optimizer: 'BootstrapFewShot' | 'MIPRO' | 'MIPROv2',
+### 3. Node Rendering (line 425-426)
+```javascript
+} else if (node.type === 'dspy-optimize') {
+    nodeEl.innerHTML = renderDSPyOptimizeNode(node, state.edges, state.nodes);
+```
 
-  // Optimizer-specific parameters
-  optimizer_config: {
-    max_bootstrapped_demos: 4,
-    max_labeled_demos: 16,
-    num_trials: 30,        // For MIPRO
-    minibatch: true,       // For MIPRO
-    minibatch_size: 35,    // For MIPRO
-    mode: 'light',         // For MIPRO: 'light' | 'medium' | 'heavy'
-    metric_threshold: null // Optional
-  },
+### 4. Inspector (line 886-895)
+```javascript
+} else if (node.type === 'dspy-optimize') {
+    const inspector = renderDSPyOptimizeInspector(...);
+    inspectorContent.innerHTML = inspector.html;
+    inspector.setupListeners({...});
+```
 
-  // Metric configuration
-  metric_config: {
-    type: 'exact_match' | 'semantic_f1' | 'custom',
-    code: '' // Python code for custom metric
-  },
-
-  // Training data
-  train_dataset: [
-    { input: 'question', output: 'answer' },
-    ...
-  ],
-
-  // Validation data (optional, will split from train if not provided)
-  val_dataset: [
-    { input: 'question', output: 'answer' },
-    ...
-  ],
-
-  // Where to save compiled program
-  save_path: './path/to/save'
+### 5. Connection Validation (line 565-568)
+```javascript
+if (isValidDSPyOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin, state.edges)) {
+    return true;
 }
 ```
 
-## Testing
-
-Run the test suite to verify the bridge:
-
-```bash
-node renderer/test-dspy-bridge.js
-```
-
-This will:
-1. Check Python environment
-2. Validate configuration handling
-3. Test bridge communication with test_bridge.py
-
-## Usage Example
-
+### 6. Execution (line 1685-1695)
 ```javascript
-const { executeDSPyOptimization } = require('./dspy-worker');
-
-const config = {
-  model_config: {
-    provider: 'ollama',
-    model: 'llama3.2:1b'
-  },
-  optimizer: 'BootstrapFewShot',
-  optimizer_config: {
-    max_bootstrapped_demos: 4,
-    max_labeled_demos: 16
-  },
-  metric_config: {
-    type: 'exact_match'
-  },
-  train_dataset: [
-    { input: 'What is 2+2?', output: '4' },
-    { input: 'What is 3+3?', output: '6' }
-  ]
-};
-
-try {
-  const result = await executeDSPyOptimization(
-    config,
-    (message, data) => {
-      console.log('Progress:', message);
-    },
-    signal // Optional AbortSignal for cancellation
-  );
-
-  console.log('Optimization complete!');
-  console.log('Score:', result.validation_score);
-  console.log('Optimized signature:', result.optimized_signature);
-} catch (error) {
-  console.error('Optimization failed:', error);
+} else if (optimizeNode.type === 'dspy-optimize') {
+    await executeDSPyOptimizeNode(...);
 }
 ```
 
-## Error Handling
+### 7. HTML Sidebar (index.html line 75-77)
+```html
+<div class="node-item" data-node-type="dspy-optimize" draggable="true">
+    DSPy Optimize
+</div>
+```
 
-The bridge handles:
-- Python not installed
-- DSPy not installed
-- Invalid configuration
-- Python process crashes
-- Cancellation via AbortSignal
-- Malformed JSON from Python
-- Timeout scenarios
+---
 
-## Next Steps
+## Configuration Options
 
-1. **Install DSPy**: `pip install dspy-ai`
-2. **Implement `dspy_optimizer.py`**: Full DSPy optimization script
-3. **Create Node UI**: `dspy-optimize-script.js` for the node interface
-4. **Integrate with main app**: Add to script.js and index.html
+### Optimizers
 
-## Security Considerations
+| Optimizer | Best For | Time | Description |
+|-----------|----------|------|-------------|
+| BootstrapFewShot | 5-50 examples | 5-10 min | Generates few-shot demos |
+| MIPROv2 | 50-300 examples | 20-60 min | Optimizes instructions + demos |
 
-- Python subprocess runs with same permissions as Electron app
-- No shell=true used (prevents injection attacks)
-- Configuration validated before sending to Python
-- stderr captured separately from stdout
-- Process properly cleaned up on error or cancellation
+### Metrics
 
-## Compatibility
+| Metric | Use Case | Example |
+|--------|----------|---------|
+| exact_match | Precise answers | "4" = "4" |
+| contains | Flexible match | "4" in "The answer is 4" |
+| semantic_f1 | Meaning similarity | Similar semantics |
+| custom | Specific needs | Your Python code |
 
-- **Node.js**: Requires child_process module (built-in)
-- **Python**: Requires Python 3.8+
-- **Platforms**: Windows, macOS, Linux
-- **DSPy**: Version 2.6.0 or higher (for save/load support)
+### Program Types
+
+| Type | Description | Use Case |
+|------|-------------|----------|
+| predict | Direct answer | Simple Q&A |
+| chain_of_thought | Shows reasoning | Math, logic |
+| react | Reasoning + acting | Complex tasks |
+
+---
+
+## Examples to Try
+
+### Example 1: Math Tutor (5 minutes)
+
+**Setup**:
+1. Add Prompt node and DSPy Optimize node
+2. Connect Prompt → DSPy Optimize
+
+**Prompt node**:
+```
+System Prompt: You are a math tutor.
+```
+
+**DSPy Optimize settings**:
+- Optimizer: BootstrapFewShot
+- Metric: exact_match
+
+**Dataset**:
+```json
+[
+  {"input": "What is 2+2?", "output": "4"},
+  {"input": "What is 3+3?", "output": "6"},
+  {"input": "What is 5+5?", "output": "10"},
+  {"input": "What is 7+7?", "output": "14"},
+  {"input": "What is 9+9?", "output": "18"},
+  {"input": "What is 4+4?", "output": "8"},
+  {"input": "What is 6+6?", "output": "12"},
+  {"input": "What is 8+8?", "output": "16"}
+]
+```
+
+**Expected result**: ~80-90% accuracy, optimized instruction, 4 demos
+
+---
+
+### Example 2: Capital Cities (5 minutes)
+
+**Dataset**:
+```json
+[
+  {"input": "What is the capital of France?", "output": "Paris"},
+  {"input": "What is the capital of Germany?", "output": "Berlin"},
+  {"input": "What is the capital of Italy?", "output": "Rome"},
+  {"input": "What is the capital of Spain?", "output": "Madrid"},
+  {"input": "What is the capital of Japan?", "output": "Tokyo"},
+  {"input": "What is the capital of Brazil?", "output": "Brasilia"},
+  {"input": "What is the capital of Canada?", "output": "Ottawa"},
+  {"input": "What is the capital of Australia?", "output": "Canberra"}
+]
+```
+
+**Settings**: BootstrapFewShot, exact_match
+
+---
+
+### Example 3: Sentiment Analysis (5 minutes)
+
+**Dataset**:
+```json
+[
+  {"input": "I love this product!", "output": "positive"},
+  {"input": "Terrible experience", "output": "negative"},
+  {"input": "It's okay I guess", "output": "neutral"},
+  {"input": "Best purchase ever!", "output": "positive"},
+  {"input": "Complete waste of money", "output": "negative"},
+  {"input": "Does what it's supposed to", "output": "neutral"},
+  {"input": "Absolutely fantastic!", "output": "positive"},
+  {"input": "Very disappointed", "output": "negative"}
+]
+```
+
+**Settings**: BootstrapFewShot, exact_match
+
+---
+
+### Example 4: Text Classification with Contains (10 minutes)
+
+**Dataset**:
+```json
+[
+  {"input": "How do I reset my password?", "output": "account"},
+  {"input": "My order hasn't arrived", "output": "shipping"},
+  {"input": "I want a refund", "output": "billing"},
+  {"input": "Can't log into my account", "output": "account"},
+  {"input": "Where is my package?", "output": "shipping"},
+  {"input": "Charge me incorrectly", "output": "billing"},
+  {"input": "Change my email address", "output": "account"},
+  {"input": "Tracking number not working", "output": "shipping"},
+  {"input": "Cancel my subscription", "output": "billing"},
+  {"input": "Two-factor authentication help", "output": "account"}
+]
+```
+
+**Settings**:
+- Optimizer: BootstrapFewShot
+- Metric: **contains** (more flexible than exact_match)
+
+---
+
+### Example 5: Chain of Thought Math (15 minutes)
+
+**Dataset**:
+```json
+[
+  {"input": "If I have 5 apples and give away 2, how many do I have?", "output": "3"},
+  {"input": "A book costs $12. I have $20. How much change?", "output": "8"},
+  {"input": "3 friends share 15 candies equally. How many each?", "output": "5"},
+  {"input": "I read 10 pages per day for 7 days. Total pages?", "output": "70"},
+  {"input": "A pizza has 8 slices. 3 are eaten. How many left?", "output": "5"},
+  {"input": "Buy 4 items at $3 each. Total cost?", "output": "12"}
+]
+```
+
+**Settings**:
+- Optimizer: BootstrapFewShot
+- Metric: contains
+- **Program Type: chain_of_thought** (shows reasoning)
+
+---
+
+### Example 6: MIPRO Optimization (20 minutes)
+
+For better results with more data, try MIPRO:
+
+**Dataset**: Use 20+ examples from any category above
+
+**Settings**:
+- **Optimizer: MIPROv2**
+- **Mode: light**
+- Metric: exact_match or contains
+
+MIPRO optimizes both instructions AND few-shot examples using Bayesian optimization.
+
+---
+
+### Example 7: Custom Metric
+
+For specific evaluation needs:
+
+**Metric Type**: custom
+
+**Custom Code**:
+```python
+def metric_function(example, pred, trace=None):
+    # Check if answer contains expected value
+    expected = str(example.answer).lower().strip()
+    predicted = str(pred.answer).lower().strip()
+
+    # More lenient: check if answer is anywhere in response
+    if expected in predicted:
+        return 1.0
+
+    # Partial credit for close answers
+    if any(word in predicted for word in expected.split()):
+        return 0.5
+
+    return 0.0
+```
+
+---
+
+## Prerequisites
+
+### Python Setup
+```bash
+# Check Python version (need 3.8+)
+python --version
+
+# Install DSPy
+pip install dspy-ai
+
+# Verify
+python -c "import dspy; print(dspy.__version__)"
+```
+
+### Ollama (for local models)
+```bash
+# Start Ollama server
+ollama serve
+
+# Pull a model
+ollama pull llama3.2:1b
+```
+
+### Or use OpenAI
+Configure API key in app Settings
+
+---
+
+## Troubleshooting
+
+### "Python not found"
+Install Python 3.8+ and add to PATH
+
+### "DSPy not installed"
+```bash
+pip install dspy-ai
+```
+
+### "Connection refused"
+Start Ollama: `ollama serve`
+
+### Low validation scores
+- Add more examples (10+ recommended)
+- Try "contains" instead of "exact_match"
+- Use MIPRO for better results
+- Check output format consistency
+
+### Optimization takes too long
+- Use BootstrapFewShot instead of MIPRO
+- Reduce dataset size
+- Use "light" mode for MIPRO
+
+---
+
+## How It All Works Together
+
+```
+User Action                    System Response
+-----------                    ---------------
+
+1. Drag DSPy node      →   createDSPyOptimizeNodeData()
+   onto canvas              creates node with default config
+
+2. Select node         →   renderDSPyOptimizeInspector()
+                            shows configuration UI
+
+3. Edit dataset        →   JSON parsed and stored in
+   in inspector             node.data.trainDataset
+
+4. Click "Run"         →   executeDSPyOptimizeNode()
+                            builds config, calls bridge
+
+5. Bridge spawns       →   dspy_optimizer.py reads config,
+   Python process           runs DSPy optimization
+
+6. Progress streams    →   onProgress callback updates
+   back to Node.js          logs panel in real-time
+
+7. Results return      →   node.data updated with
+                            score, instructions, demos
+
+8. Click "Apply"       →   applyOptimizedPrompt()
+                            copies to connected Prompt node
+```
+
+---
+
+## Tips for Best Results
+
+1. **Start small**: 5-10 examples, BootstrapFewShot
+2. **Consistent format**: Outputs should follow same pattern
+3. **Diverse examples**: Cover different input types
+4. **Right metric**: exact_match for precise, contains for flexible
+5. **Iterate**: Check results, add examples, re-run
+
+---
+
+## Learn More
+
+- [DSPy Documentation](https://dspy.ai)
+- [DSPy GitHub](https://github.com/stanfordnlp/dspy)
+- [DSPy Paper](https://arxiv.org/abs/2310.03714)
