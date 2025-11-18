@@ -190,7 +190,6 @@ if (isValidDSPyOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin, 
 | exact_match | Precise answers | "4" = "4" |
 | contains | Flexible match | "4" in "The answer is 4" |
 | semantic_f1 | Meaning similarity | Similar semantics |
-| custom | Specific needs | Your Python code |
 
 ### Program Types
 
@@ -334,32 +333,6 @@ For better results with more data, try MIPRO:
 - Metric: exact_match or contains
 
 MIPRO optimizes both instructions AND few-shot examples using Bayesian optimization.
-
----
-
-### Example 7: Custom Metric
-
-For specific evaluation needs:
-
-**Metric Type**: custom
-
-**Custom Code**:
-```python
-def metric_function(example, pred, trace=None):
-    # Check if answer contains expected value
-    expected = str(example.answer).lower().strip()
-    predicted = str(pred.answer).lower().strip()
-
-    # More lenient: check if answer is anywhere in response
-    if expected in predicted:
-        return 1.0
-
-    # Partial credit for close answers
-    if any(word in predicted for word in expected.split()):
-        return 0.5
-
-    return 0.0
-```
 
 ---
 

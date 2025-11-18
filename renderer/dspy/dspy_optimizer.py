@@ -152,8 +152,7 @@ def create_metric(metric_config: Dict[str, Any]) -> Callable:
 
     Args:
         metric_config: {
-            'type': 'exact_match' | 'semantic_f1' | 'contains' | 'custom',
-            'code': 'python code for custom metric',
+            'type': 'exact_match' | 'semantic_f1' | 'contains',
             'case_sensitive': bool (optional)
         }
 
@@ -218,43 +217,8 @@ def create_metric(metric_config: Dict[str, Any]) -> Callable:
             log_progress("SemanticF1 not available, falling back to exact match")
             return create_metric({'type': 'exact_match'})
 
-    elif metric_type == 'custom':
-        # Execute custom metric code
-        custom_code = metric_config.get('code', '')
-
-        if not custom_code or not custom_code.strip():
-            raise ValueError("Custom metric requires 'code' field with Python function")
-
-        log_progress("Compiling custom metric code")
-
-        # Create execution environment with dspy available
-        exec_globals = {
-            'dspy': dspy,
-            '__builtins__': __builtins__
-        }
-
-        try:
-            # Execute the custom code
-            exec(custom_code, exec_globals)
-
-            # Look for metric_function in the namespace
-            if 'metric_function' not in exec_globals:
-                raise ValueError("Custom metric code must define 'metric_function'")
-
-            metric_fn = exec_globals['metric_function']
-
-            # Validate it's callable
-            if not callable(metric_fn):
-                raise ValueError("metric_function must be a callable function")
-
-            log_progress("Custom metric compiled successfully")
-            return metric_fn
-
-        except Exception as e:
-            raise ValueError(f"Failed to compile custom metric: {str(e)}")
-
     else:
-        raise ValueError(f"Unknown metric type: {metric_type}. Use 'exact_match', 'contains', 'semantic_f1', or 'custom'.")
+        raise ValueError(f"Unknown metric type: {metric_type}. Use 'exact_match', 'contains', or 'semantic_f1'.")
 
 
 # ============================================================================

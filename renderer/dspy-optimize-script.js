@@ -16,7 +16,7 @@ const path = require('path');
  */
 function createDSPyOptimizeNodeData() {
     return {
-        title: 'DSPy Optimize',
+        title: 'DSPy',
 
         // Optimizer Configuration
         optimizer: 'BootstrapFewShot',  // 'BootstrapFewShot' | 'MIPROv2'
@@ -24,9 +24,8 @@ function createDSPyOptimizeNodeData() {
         programType: 'predict',          // 'predict' | 'chain_of_thought' | 'react'
 
         // Metric Configuration
-        metricType: 'exact_match',       // 'exact_match' | 'contains' | 'semantic_f1' | 'custom'
+        metricType: 'exact_match',       // 'exact_match' | 'contains' | 'semantic_f1'
         metricCaseSensitive: false,
-        customMetricCode: '',
         metricThreshold: null,
 
         // Optimizer Parameters
@@ -162,7 +161,6 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
                 <option value="exact_match" ${node.data.metricType === 'exact_match' ? 'selected' : ''}>Exact Match</option>
                 <option value="contains" ${node.data.metricType === 'contains' ? 'selected' : ''}>Contains</option>
                 <option value="semantic_f1" ${node.data.metricType === 'semantic_f1' ? 'selected' : ''}>Semantic F1</option>
-                <option value="custom" ${node.data.metricType === 'custom' ? 'selected' : ''}>Custom</option>
             </select>
         </div>
 
@@ -172,12 +170,6 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
                 <input type="checkbox" id="inspectorMetricCaseSensitive" ${node.data.metricCaseSensitive ? 'checked' : ''}>
                 Case Sensitive
             </label>
-        </div>
-
-        <!-- Custom Metric Code (shown only for custom) -->
-        <div class="inspector-section" id="customMetricSection" style="display: ${node.data.metricType === 'custom' ? 'block' : 'none'};">
-            <label>Custom Metric (Python)</label>
-            <textarea id="inspectorCustomMetricCode" class="inspector-textarea code-editor" rows="8" placeholder="def metric_function(example, pred, trace=None):&#10;    expected = str(example.answer).lower()&#10;    predicted = str(pred.answer).lower()&#10;    return expected == predicted">${node.data.customMetricCode}</textarea>
         </div>
 
         <!-- Optimizer Parameters -->
@@ -355,18 +347,11 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
                 node.data.metricType = e.target.value;
                 // Show/hide metric-specific options
                 const caseSensitive = document.getElementById('caseSensitiveSection');
-                const customMetric = document.getElementById('customMetricSection');
 
                 if (['exact_match', 'contains'].includes(e.target.value)) {
                     if (caseSensitive) caseSensitive.style.display = 'block';
                 } else {
                     if (caseSensitive) caseSensitive.style.display = 'none';
-                }
-
-                if (e.target.value === 'custom') {
-                    if (customMetric) customMetric.style.display = 'block';
-                } else {
-                    if (customMetric) customMetric.style.display = 'none';
                 }
             });
 
@@ -375,14 +360,6 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
             if (caseSensitiveCheck) {
                 caseSensitiveCheck.addEventListener('change', (e) => {
                     node.data.metricCaseSensitive = e.target.checked;
-                });
-            }
-
-            // Custom Metric Code
-            const customMetricCode = document.getElementById('inspectorCustomMetricCode');
-            if (customMetricCode) {
-                customMetricCode.addEventListener('input', (e) => {
-                    node.data.customMetricCode = e.target.value;
                 });
             }
 
@@ -547,13 +524,6 @@ function validateDSPyOptimizeNode(dspyOptimizeNode, edges, nodes) {
         }
     }
 
-    // Check custom metric code if custom metric selected
-    if (dspyOptimizeNode.data.metricType === 'custom') {
-        if (!dspyOptimizeNode.data.customMetricCode || !dspyOptimizeNode.data.customMetricCode.trim()) {
-            errors.push('Custom metric code is required when using custom metric');
-        }
-    }
-
     // Check model node exists
     const modelNode = findModelNode(nodes);
     if (!modelNode) {
@@ -667,8 +637,7 @@ async function executeDSPyOptimizeNode(
             },
             metric_config: {
                 type: dspyOptimizeNode.data.metricType,
-                case_sensitive: dspyOptimizeNode.data.metricCaseSensitive,
-                code: dspyOptimizeNode.data.customMetricCode
+                case_sensitive: dspyOptimizeNode.data.metricCaseSensitive
             },
             program_type: dspyOptimizeNode.data.programType,
             train_dataset: dspyOptimizeNode.data.trainDataset,
