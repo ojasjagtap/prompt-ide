@@ -206,8 +206,8 @@ if (isValidDSPyOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin, 
 ### Example 1: Math Tutor (5 minutes)
 
 **Setup**:
-1. Add Prompt node and DSPy Optimize node
-2. Connect Prompt → DSPy Optimize
+1. Add Prompt node, Model node, and DSPy Optimize node
+2. Connect Prompt → Model → DSPy Optimize
 
 **Prompt node**:
 ```

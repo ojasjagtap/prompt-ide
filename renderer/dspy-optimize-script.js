@@ -86,8 +86,8 @@ function renderDSPyOptimizeNode(node, edges, nodes) {
             </div>
             <div class="header-bottom">
                 <div class="pin-container pin-input-container">
-                    <div class="pin pin-input" data-pin="prompt"></div>
-                    <span class="pin-label">prompt</span>
+                    <div class="pin pin-input" data-pin="input"></div>
+                    <span class="pin-label">response</span>
                 </div>
                 <div class="pin-spacer"></div>
             </div>
@@ -452,14 +452,14 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
  * Validate DSPy optimize node connections
  */
 function isValidDSPyOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin, edges) {
-    // Allow Prompt.prompt → DSPyOptimize.prompt
-    if (sourceNode.type === 'prompt' && sourcePin === 'prompt' &&
-        targetNode.type === 'dspy-optimize' && targetPin === 'prompt') {
+    // Allow Model.output → DSPyOptimize.input
+    if (sourceNode.type === 'model' && sourcePin === 'output' &&
+        targetNode.type === 'dspy-optimize' && targetPin === 'input') {
 
-        // Only allow one prompt connection
+        // Only allow one input connection
         if (edges) {
             for (const edge of edges.values()) {
-                if (edge.targetNodeId === targetNode.id && edge.targetPin === 'prompt') {
+                if (edge.targetNodeId === targetNode.id && edge.targetPin === 'input') {
                     return false;
                 }
             }
@@ -476,13 +476,13 @@ function isValidDSPyOptimizeConnection(sourceNode, sourcePin, targetNode, target
 // ============================================================================
 
 /**
- * Find connected prompt node
+ * Find connected model node (Model.output → DSPyOptimize.input)
  */
-function findConnectedPromptNode(dspyOptimizeNodeId, edges, nodes) {
+function findConnectedModelNode(dspyOptimizeNodeId, edges, nodes) {
     for (const edge of edges.values()) {
-        if (edge.targetNodeId === dspyOptimizeNodeId && edge.targetPin === 'prompt') {
+        if (edge.targetNodeId === dspyOptimizeNodeId && edge.targetPin === 'input') {
             const sourceNode = nodes.get(edge.sourceNodeId);
-            if (sourceNode && sourceNode.type === 'prompt') {
+            if (sourceNode && sourceNode.type === 'model' && edge.sourcePin === 'output') {
                 return sourceNode;
             }
         }
@@ -491,12 +491,15 @@ function findConnectedPromptNode(dspyOptimizeNodeId, edges, nodes) {
 }
 
 /**
- * Find model node (for provider/model info)
+ * Find prompt node connected to a model node (Prompt.prompt → Model.prompt)
  */
-function findModelNode(nodes) {
-    for (const node of nodes.values()) {
-        if (node.type === 'model' && node.data.model) {
-            return node;
+function findPromptNodeForModel(modelNodeId, edges, nodes) {
+    for (const edge of edges.values()) {
+        if (edge.targetNodeId === modelNodeId && edge.targetPin === 'prompt') {
+            const sourceNode = nodes.get(edge.sourceNodeId);
+            if (sourceNode && sourceNode.type === 'prompt') {
+                return sourceNode;
+            }
         }
     }
     return null;
@@ -524,10 +527,10 @@ function validateDSPyOptimizeNode(dspyOptimizeNode, edges, nodes) {
         }
     }
 
-    // Check model node exists
-    const modelNode = findModelNode(nodes);
+    // Check model node is connected
+    const modelNode = findConnectedModelNode(dspyOptimizeNode.id, edges, nodes);
     if (!modelNode) {
-        errors.push('No model node found in workflow');
+        errors.push('No model node connected to DSPy optimize node');
     }
 
     return errors;
@@ -551,10 +554,16 @@ function applyOptimizedPrompt(dspyOptimizeNode, edges, nodes, addLog, updateNode
         return;
     }
 
-    // Find connected prompt node
-    const promptNode = findConnectedPromptNode(dspyOptimizeNode.id, edges, nodes);
+    // Find connected model node, then find its prompt node
+    const modelNode = findConnectedModelNode(dspyOptimizeNode.id, edges, nodes);
+    if (!modelNode) {
+        addLog('error', 'No model node connected', dspyOptimizeNode.id);
+        return;
+    }
+
+    const promptNode = findPromptNodeForModel(modelNode.id, edges, nodes);
     if (!promptNode) {
-        addLog('error', 'No prompt node connected', dspyOptimizeNode.id);
+        addLog('error', 'No prompt node connected to the model node', dspyOptimizeNode.id);
         return;
     }
 
@@ -600,10 +609,10 @@ async function executeDSPyOptimizeNode(
         return;
     }
 
-    // Find model node
-    const modelNode = findModelNode(nodes);
+    // Find connected model node
+    const modelNode = findConnectedModelNode(dspyOptimizeNode.id, edges, nodes);
     if (!modelNode) {
-        addLog('error', 'No model node found', dspyOptimizeNode.id);
+        addLog('error', 'No model node connected', dspyOptimizeNode.id);
         setNodeStatus(dspyOptimizeNode.id, 'error');
         return;
     }
