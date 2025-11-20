@@ -232,15 +232,13 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
             </button>
         </div>
 
-        ${hasResults ? `
-            <div class="inspector-section">
-                <button id="inspectorApplyToPrompt" class="inspector-button"
-                        style="width: 100%; padding: 10px; background: ${applyButtonDisabled ? '#6c757d' : '#28a745'}; color: white; border: none; border-radius: 4px; cursor: ${applyButtonDisabled ? 'not-allowed' : 'pointer'}; font-size: 14px; opacity: ${applyButtonDisabled ? '0.6' : '1'};"
-                        ${applyButtonDisabled ? 'disabled' : ''}>
-                    Apply
-                </button>
-            </div>
-        ` : ''}
+        <div class="inspector-section">
+            <button id="inspectorApplyToPrompt" class="inspector-button"
+                    style="width: 100%; padding: 10px; background: ${applyButtonDisabled ? '#6c757d' : '#28a745'}; color: white; border: none; border-radius: 4px; cursor: ${applyButtonDisabled ? 'not-allowed' : 'pointer'}; font-size: 14px; opacity: ${applyButtonDisabled ? '0.6' : '1'};"
+                    ${applyButtonDisabled ? 'disabled' : ''}>
+                Apply
+            </button>
+        </div>
     `;
 
     return {
