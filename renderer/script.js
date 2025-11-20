@@ -2648,7 +2648,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     const container = document.getElementById('canvasContainer');
     container.addEventListener('mousedown', onCanvasMouseDown);
     container.addEventListener('mousemove', onCanvasMouseMove);
-    container.addEventListener('mouseup', onCanvasMouseUp);
+    // Attach mouseup to document to ensure dragging/panning state is cleared
+    // even when mouse is released outside the canvas (e.g., over inspector panel)
+    document.addEventListener('mouseup', onCanvasMouseUp);
     container.addEventListener('wheel', onCanvasWheel);
     container.addEventListener('drop', onCanvasDrop);
     container.addEventListener('dragover', onCanvasDragOver);

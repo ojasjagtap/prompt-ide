@@ -61,8 +61,6 @@ def setup_language_model(config: Dict[str, Any]):
     api_key = config.get('api_key', '')
     api_base = config.get('api_base')
 
-    log_progress(f"Configuring {provider} with model {model_id}")
-
     if provider == 'ollama':
         # Ollama local models
         base_url = api_base or 'http://localhost:11434'
@@ -99,7 +97,6 @@ def setup_language_model(config: Dict[str, Any]):
     # Configure DSPy to use this model
     dspy.configure(lm=lm)
 
-    log_progress("Language model configured successfully")
     return lm
 
 
@@ -138,7 +135,6 @@ def prepare_dataset(dataset_raw: List[Dict[str, Any]], dataset_name: str = "data
 
         examples.append(example)
 
-    log_progress(f"Prepared {len(examples)} examples for {dataset_name}")
     return examples
 
 
@@ -152,8 +148,7 @@ def create_metric(metric_config: Dict[str, Any]) -> Callable:
 
     Args:
         metric_config: {
-            'type': 'exact_match' | 'semantic_f1' | 'contains',
-            'case_sensitive': bool (optional)
+            'type': 'exact_match' | 'semantic_f1' | 'contains'
         }
 
     Returns:
@@ -162,46 +157,30 @@ def create_metric(metric_config: Dict[str, Any]) -> Callable:
     import dspy
 
     metric_type = metric_config.get('type', 'exact_match')
-    log_progress(f"Creating metric: {metric_type}")
 
     if metric_type == 'exact_match':
-        # Simple exact string match metric
-        case_sensitive = metric_config.get('case_sensitive', False)
-
+        # Simple exact string match metric (case-insensitive)
         def exact_match_metric(example, pred, trace=None):
             """Exact match between expected and predicted answer"""
             if not hasattr(pred, 'answer'):
                 return False
 
-            expected = str(example.answer)
-            predicted = str(pred.answer)
-
-            if not case_sensitive:
-                expected = expected.strip().lower()
-                predicted = predicted.strip().lower()
-            else:
-                expected = expected.strip()
-                predicted = predicted.strip()
+            expected = str(example.answer).strip().lower()
+            predicted = str(pred.answer).strip().lower()
 
             return expected == predicted
 
         return exact_match_metric
 
     elif metric_type == 'contains':
-        # Check if expected answer is contained in prediction
-        case_sensitive = metric_config.get('case_sensitive', False)
-
+        # Check if expected answer is contained in prediction (case-insensitive)
         def contains_metric(example, pred, trace=None):
             """Check if expected answer is contained in prediction"""
             if not hasattr(pred, 'answer'):
                 return False
 
-            expected = str(example.answer)
-            predicted = str(pred.answer)
-
-            if not case_sensitive:
-                expected = expected.strip().lower()
-                predicted = predicted.strip().lower()
+            expected = str(example.answer).strip().lower()
+            predicted = str(pred.answer).strip().lower()
 
             return expected in predicted
 
@@ -225,26 +204,36 @@ def create_metric(metric_config: Dict[str, Any]) -> Callable:
 # DSPY PROGRAM DEFINITION
 # ============================================================================
 
-def create_dspy_program(program_type: str = 'predict') -> Any:
+def create_dspy_program(program_type: str = 'predict', initial_instruction: str = '') -> Any:
     """
     Create DSPy program/module based on type
 
     Args:
         program_type: 'predict' | 'chain_of_thought' | 'react'
+        initial_instruction: Initial system prompt/instruction to use
 
     Returns:
         DSPy Module instance
     """
     import dspy
 
-    log_progress(f"Creating DSPy program: {program_type}")
+    # Create signature with initial instruction if provided
+    if initial_instruction:
+        # Create a signature with instructions parameter
+        # This is the correct DSPy 3.x way to set instructions that can be optimized
+        signature = dspy.Signature(
+            "question -> answer",
+            instructions=initial_instruction
+        )
+    else:
+        signature = "question -> answer"
 
     if program_type == 'predict':
         # Simple prediction module
         class SimpleQA(dspy.Module):
             def __init__(self):
                 super().__init__()
-                self.predict = dspy.Predict("question -> answer")
+                self.predict = dspy.Predict(signature)
 
             def forward(self, question):
                 return self.predict(question=question)
@@ -256,7 +245,7 @@ def create_dspy_program(program_type: str = 'predict') -> Any:
         class ChainOfThoughtQA(dspy.Module):
             def __init__(self):
                 super().__init__()
-                self.generate_answer = dspy.ChainOfThought("question -> answer")
+                self.generate_answer = dspy.ChainOfThought(signature)
 
             def forward(self, question):
                 return self.generate_answer(question=question)
@@ -268,7 +257,7 @@ def create_dspy_program(program_type: str = 'predict') -> Any:
         class ReActQA(dspy.Module):
             def __init__(self):
                 super().__init__()
-                self.generate_answer = dspy.ReAct("question -> answer")
+                self.generate_answer = dspy.ReAct(signature)
 
             def forward(self, question):
                 return self.generate_answer(question=question)
@@ -278,64 +267,12 @@ def create_dspy_program(program_type: str = 'predict') -> Any:
     else:
         # Default to simple predict
         log_progress(f"Unknown program type '{program_type}', using 'predict'")
-        return create_dspy_program('predict')
+        return create_dspy_program('predict', initial_instruction)
 
 
 # ============================================================================
 # OPTIMIZERS
 # ============================================================================
-
-def run_bootstrap_fewshot(
-    program: Any,
-    trainset: List,
-    metric: Callable,
-    config: Dict[str, Any]
-) -> Any:
-    """
-    Run BootstrapFewShot optimization
-
-    Args:
-        program: DSPy module to optimize
-        trainset: Training examples
-        metric: Evaluation metric
-        config: Optimizer configuration
-
-    Returns:
-        Compiled DSPy program
-    """
-    import dspy
-    from dspy.teleprompt import BootstrapFewShot
-
-    log_progress("Starting BootstrapFewShot optimization")
-
-    max_bootstrapped = config.get('max_bootstrapped_demos', 4)
-    max_labeled = config.get('max_labeled_demos', 16)
-    metric_threshold = config.get('metric_threshold')
-    max_rounds = config.get('max_rounds', 1)
-
-    log_progress(f"Config: max_bootstrapped={max_bootstrapped}, max_labeled={max_labeled}")
-
-    # Create optimizer
-    optimizer = BootstrapFewShot(
-        metric=metric,
-        max_bootstrapped_demos=max_bootstrapped,
-        max_labeled_demos=max_labeled,
-        max_rounds=max_rounds
-    )
-
-    if metric_threshold is not None:
-        optimizer.metric_threshold = metric_threshold
-
-    # Compile the program
-    log_progress("Compiling program with BootstrapFewShot...")
-    compiled_program = optimizer.compile(
-        student=program,
-        trainset=trainset
-    )
-
-    log_progress("BootstrapFewShot optimization complete")
-    return compiled_program
-
 
 def run_mipro(
     program: Any,
@@ -363,23 +300,26 @@ def run_mipro(
     log_progress("Starting MIPROv2 optimization")
 
     mode = config.get('mode', 'light')
-    num_trials = config.get('num_trials', 30)
     max_bootstrapped = config.get('max_bootstrapped_demos', 4)
     max_labeled = config.get('max_labeled_demos', 4)
     minibatch = config.get('minibatch', True)
     minibatch_size = config.get('minibatch_size', 35)
     metric_threshold = config.get('metric_threshold')
 
-    log_progress(f"Config: mode={mode}, trials={num_trials}, minibatch={minibatch}")
+    log_progress(f"Optimizing with mode={mode}")
 
     # Create optimizer
+    # Note: When using 'auto' mode, num_trials and num_candidates are set automatically
+    # We need to ensure instruction optimization is enabled
     optimizer_kwargs = {
         'metric': metric,
         'auto': mode,
         'max_bootstrapped_demos': max_bootstrapped,
         'max_labeled_demos': max_labeled,
         'verbose': True,
-        'track_stats': True
+        'track_stats': True,
+        # Ensure instruction optimization is enabled
+        'prompt_model': None,  # Use the same model for generating instruction candidates
     }
 
     if metric_threshold is not None:
@@ -388,17 +328,18 @@ def run_mipro(
     optimizer = MIPROv2(**optimizer_kwargs)
 
     # Compile the program
-    log_progress(f"Compiling program with MIPROv2 (this may take several minutes)...")
+    # Note: Don't pass num_trials when using auto mode - it's set automatically
+    log_progress(f"Running MIPROv2 optimization (this may take a few minutes)...")
     compiled_program = optimizer.compile(
         student=program,
         trainset=trainset,
         valset=valset,
-        num_trials=num_trials,
         minibatch=minibatch,
         minibatch_size=minibatch_size
     )
 
-    log_progress("MIPROv2 optimization complete")
+    log_progress("Optimization complete")
+
     return compiled_program
 
 
@@ -427,7 +368,7 @@ def evaluate_program(
     import dspy
     from dspy.evaluate import Evaluate
 
-    log_progress(f"Evaluating program on {len(devset)} examples")
+    log_progress(f"Evaluating on {len(devset)} examples...")
 
     evaluator = Evaluate(
         devset=devset,
@@ -437,9 +378,21 @@ def evaluate_program(
         display_table=False
     )
 
-    score = evaluator(program)
+    result = evaluator(program)
 
-    log_progress(f"Evaluation complete: score = {score:.3f}")
+    # DSPy 3.x returns EvaluationResult object, extract the score
+    if hasattr(result, 'score'):
+        score = float(result.score)
+    elif isinstance(result, (int, float)):
+        score = float(result)
+    else:
+        # Try to convert to float directly
+        score = float(result)
+
+    # DSPy Evaluate returns percentage (0-100), normalize to decimal (0-1)
+    if score > 1:
+        score = score / 100.0
+
     return score
 
 
@@ -457,15 +410,24 @@ def extract_optimized_results(compiled_program: Any) -> Dict[str, Any]:
     Returns:
         Dictionary with optimized components
     """
-    log_progress("Extracting optimized components")
+    import dspy
 
     results = {
         'instructions': {},
         'demos': [],
-        'predictors': []
+        'predictors': [],
+        'formatted_prompts': {}  # Full formatted prompts
     }
 
     try:
+        # Get the adapter for formatting prompts (DSPy 3.x approach)
+        adapter = None
+        try:
+            from dspy.adapters import ChatAdapter
+            adapter = ChatAdapter()
+        except ImportError:
+            pass
+
         # Iterate through all predictors in the program
         for name, module in compiled_program.named_predictors():
             predictor_info = {
@@ -473,16 +435,45 @@ def extract_optimized_results(compiled_program: Any) -> Dict[str, Any]:
                 'type': type(module).__name__
             }
 
-            # Extract instructions if available
-            if hasattr(module, 'extended_signature'):
+            # Method 1: Use adapter to get the full formatted prompt (recommended by DSPy team)
+            if adapter and hasattr(module, 'signature'):
+                try:
+                    formatted = adapter.format(
+                        module.signature,
+                        demos=getattr(module, 'demos', []),
+                        inputs={k: f"{{{k}}}" for k in module.signature.input_fields},
+                    )
+                    if formatted:
+                        # The formatted prompt contains the full optimized instruction
+                        results['formatted_prompts'][name] = formatted
+                except Exception as e:
+                    pass
+
+            instruction = None
+
+            # Method 2: Check signature.instructions (DSPy 3.x stores it here)
+            if hasattr(module, 'signature'):
+                sig = module.signature
+                if hasattr(sig, 'instructions') and sig.instructions:
+                    instruction = sig.instructions
+                elif hasattr(sig, '__doc__') and sig.__doc__:
+                    instruction = sig.__doc__
+
+            # Method 3: Check extended_signature (older DSPy versions)
+            if not instruction and hasattr(module, 'extended_signature'):
                 sig = module.extended_signature
-                instruction = getattr(sig, 'instructions', '')
+                if hasattr(sig, 'instructions') and sig.instructions:
+                    instruction = sig.instructions
+
+            if instruction:
+                # Clean up the instruction text
+                instruction = str(instruction).strip()
                 if instruction:
                     results['instructions'][name] = instruction
                     predictor_info['instruction'] = instruction
 
             # Extract demonstrations if available
-            if hasattr(module, 'demos'):
+            if hasattr(module, 'demos') and module.demos:
                 demo_count = len(module.demos)
                 predictor_info['demo_count'] = demo_count
 
@@ -497,10 +488,18 @@ def extract_optimized_results(compiled_program: Any) -> Dict[str, Any]:
 
             results['predictors'].append(predictor_info)
 
-        log_progress(f"Extracted {len(results['predictors'])} predictors, {len(results['demos'])} demos")
+        # If we have formatted prompts but no instructions, extract from formatted
+        if not results['instructions'] and results['formatted_prompts']:
+            for name, formatted in results['formatted_prompts'].items():
+                # The formatted prompt is the complete optimized prompt
+                results['instructions'][name] = str(formatted)
+
+        log_progress(f"Extracted {len(results['demos'])} demos and {len(results['instructions'])} optimized instructions")
 
     except Exception as e:
         log_progress(f"Warning: Could not fully extract results: {str(e)}")
+        import traceback
+        log_progress(f"Traceback: {traceback.format_exc()}")
 
     return results
 
@@ -522,8 +521,6 @@ def save_compiled_program(compiled_program: Any, save_path: str) -> str:
     """
     import os
 
-    log_progress(f"Saving compiled program to {save_path}")
-
     try:
         # Create directory if it doesn't exist
         os.makedirs(save_path, exist_ok=True)
@@ -532,12 +529,9 @@ def save_compiled_program(compiled_program: Any, save_path: str) -> str:
         compiled_program.save(save_path)
 
         abs_path = os.path.abspath(save_path)
-        log_progress(f"Program saved successfully to {abs_path}")
-
         return abs_path
 
     except Exception as e:
-        log_progress(f"Warning: Failed to save program: {str(e)}")
         return save_path
 
 
@@ -550,33 +544,26 @@ def main():
 
     try:
         # Step 1: Read configuration from stdin
-        log_progress("Reading configuration from stdin...")
         config_json = sys.stdin.read()
 
         if not config_json or not config_json.strip():
             raise ValueError("No configuration received on stdin")
 
-        log_progress("Parsing configuration...")
         config = json.loads(config_json)
 
-        log_progress("Configuration loaded successfully")
-
         # Step 2: Import DSPy (check if installed)
-        log_progress("Importing DSPy library...")
         try:
             import dspy
-            log_progress(f"DSPy version {dspy.__version__} loaded")
         except ImportError as e:
             raise ImportError(
                 "DSPy library not found. Please install it with: pip install dspy-ai"
             )
 
         # Step 3: Setup language model
-        log_progress("Setting up language model...")
+        log_progress("Initializing DSPy optimizer...")
         lm = setup_language_model(config['model_config'])
 
         # Step 4: Prepare datasets
-        log_progress("Preparing datasets...")
         trainset = prepare_dataset(config['train_dataset'], 'train_dataset')
 
         # Handle validation set
@@ -588,44 +575,35 @@ def main():
             if split_idx < len(trainset):
                 valset = trainset[split_idx:]
                 trainset = trainset[:split_idx]
-                log_progress(f"Auto-split dataset: {len(trainset)} train, {len(valset)} val")
+                log_progress(f"Using {len(trainset)} training examples, {len(valset)} validation examples")
             else:
                 # Dataset too small, use all for train and val
                 valset = trainset
-                log_progress("Dataset too small for split, using same data for train and val")
+                log_progress(f"Using {len(trainset)} examples for training and validation")
 
         # Step 5: Create metric
-        log_progress("Creating evaluation metric...")
         metric = create_metric(config['metric_config'])
 
-        # Step 6: Create DSPy program
+        # Step 6: Create DSPy program with initial instruction
         program_type = config.get('program_type', 'predict')
-        program = create_dspy_program(program_type)
-        log_progress(f"DSPy program created: {type(program).__name__}")
+        initial_instruction = config.get('initial_instruction', '')
+        program = create_dspy_program(program_type, initial_instruction)
 
-        # Step 7: Run optimization
-        optimizer_type = config.get('optimizer', 'BootstrapFewShot')
+        # Step 7: Run optimization (MIPROv2 for instruction optimization)
+        optimizer_type = config.get('optimizer', 'MIPROv2')
         optimizer_config = config.get('optimizer_config', {})
 
-        log_progress(f"Starting {optimizer_type} optimization...")
-
-        if optimizer_type == 'BootstrapFewShot':
-            compiled_program = run_bootstrap_fewshot(
-                program, trainset, metric, optimizer_config
-            )
-        elif optimizer_type in ['MIPRO', 'MIPROv2']:
+        if optimizer_type in ['MIPRO', 'MIPROv2']:
             compiled_program = run_mipro(
                 program, trainset, valset, metric, optimizer_config
             )
         else:
-            raise ValueError(f"Unknown optimizer: {optimizer_type}")
+            raise ValueError(f"Unknown optimizer: {optimizer_type}. Use 'MIPROv2' for instruction optimization.")
 
         # Step 8: Evaluate compiled program
-        log_progress("Evaluating optimized program...")
         validation_score = evaluate_program(compiled_program, valset, metric)
 
         # Step 9: Extract results
-        log_progress("Extracting optimization results...")
         extracted_results = extract_optimized_results(compiled_program)
 
         # Step 10: Save compiled program
@@ -633,7 +611,7 @@ def main():
         saved_path = save_compiled_program(compiled_program, save_path)
 
         # Step 11: Return success result
-        log_progress("Optimization complete!")
+        log_progress(f"Optimization complete! Validation score: {(validation_score * 100):.1f}%")
 
         success_result = {
             'type': 'success',

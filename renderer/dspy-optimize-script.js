@@ -6,6 +6,7 @@
 
 const { executeDSPyOptimization, checkDSPyEnvironment, validateDSPyConfig } = require('./dspy-worker');
 const path = require('path');
+const os = require('os');
 
 // ============================================================================
 // DATA STRUCTURE
@@ -19,13 +20,12 @@ function createDSPyOptimizeNodeData() {
         title: 'DSPy',
 
         // Optimizer Configuration
-        optimizer: 'BootstrapFewShot',  // 'BootstrapFewShot' | 'MIPROv2'
+        optimizer: 'MIPROv2',  // 'MIPROv2' (instruction optimization)
         optimizationMode: 'light',       // For MIPRO: 'light' | 'medium' | 'heavy'
         programType: 'predict',          // 'predict' | 'chain_of_thought' | 'react'
 
         // Metric Configuration
         metricType: 'exact_match',       // 'exact_match' | 'contains' | 'semantic_f1'
-        metricCaseSensitive: false,
         metricThreshold: null,
 
         // Optimizer Parameters
@@ -125,12 +125,13 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
             <input type="text" id="inspectorTitle" class="inspector-input" value="${node.data.title}">
         </div>
 
-        <!-- Optimizer Selection -->
+        <!-- MIPRO Mode -->
         <div class="inspector-section">
-            <label>Optimizer</label>
-            <select id="inspectorOptimizer" class="inspector-input">
-                <option value="BootstrapFewShot" ${node.data.optimizer === 'BootstrapFewShot' ? 'selected' : ''}>BootstrapFewShot</option>
-                <option value="MIPROv2" ${node.data.optimizer === 'MIPROv2' ? 'selected' : ''}>MIPROv2</option>
+            <label>MIPRO Mode</label>
+            <select id="inspectorOptimizationMode" class="inspector-input">
+                <option value="light" ${node.data.optimizationMode === 'light' ? 'selected' : ''}>Light (fast)</option>
+                <option value="medium" ${node.data.optimizationMode === 'medium' ? 'selected' : ''}>Medium</option>
+                <option value="heavy" ${node.data.optimizationMode === 'heavy' ? 'selected' : ''}>Heavy (thorough)</option>
             </select>
         </div>
 
@@ -144,16 +145,6 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
             </select>
         </div>
 
-        <!-- MIPRO Mode (shown only for MIPROv2) -->
-        <div class="inspector-section" id="miproModeSection" style="display: ${node.data.optimizer === 'MIPROv2' ? 'block' : 'none'};">
-            <label>MIPRO Mode</label>
-            <select id="inspectorOptimizationMode" class="inspector-input">
-                <option value="light" ${node.data.optimizationMode === 'light' ? 'selected' : ''}>Light (fast)</option>
-                <option value="medium" ${node.data.optimizationMode === 'medium' ? 'selected' : ''}>Medium</option>
-                <option value="heavy" ${node.data.optimizationMode === 'heavy' ? 'selected' : ''}>Heavy (thorough)</option>
-            </select>
-        </div>
-
         <!-- Metric Configuration -->
         <div class="inspector-section">
             <label>Metric Type</label>
@@ -162,45 +153,6 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
                 <option value="contains" ${node.data.metricType === 'contains' ? 'selected' : ''}>Contains</option>
                 <option value="semantic_f1" ${node.data.metricType === 'semantic_f1' ? 'selected' : ''}>Semantic F1</option>
             </select>
-        </div>
-
-        <!-- Case Sensitive (for exact_match and contains) -->
-        <div class="inspector-section" id="caseSensitiveSection" style="display: ${['exact_match', 'contains'].includes(node.data.metricType) ? 'block' : 'none'};">
-            <label>
-                <input type="checkbox" id="inspectorMetricCaseSensitive" ${node.data.metricCaseSensitive ? 'checked' : ''}>
-                Case Sensitive
-            </label>
-        </div>
-
-        <!-- Optimizer Parameters -->
-        <div class="inspector-section">
-            <details>
-                <summary style="cursor: pointer; font-weight: bold; margin-bottom: 8px;">Advanced Parameters</summary>
-
-                <div style="margin-top: 8px;">
-                    <label>Max Bootstrapped Demos</label>
-                    <input type="number" id="inspectorMaxBootstrappedDemos" class="inspector-input"
-                           value="${node.data.maxBootstrappedDemos}" min="1" max="20">
-                </div>
-
-                <div style="margin-top: 8px;">
-                    <label>Max Labeled Demos</label>
-                    <input type="number" id="inspectorMaxLabeledDemos" class="inspector-input"
-                           value="${node.data.maxLabeledDemos}" min="1" max="50">
-                </div>
-
-                <div style="margin-top: 8px;" id="numTrialsSection" style="display: ${node.data.optimizer === 'MIPROv2' ? 'block' : 'none'};">
-                    <label>Num Trials (MIPRO)</label>
-                    <input type="number" id="inspectorNumTrials" class="inspector-input"
-                           value="${node.data.numTrials}" min="5" max="200">
-                </div>
-
-                <div style="margin-top: 8px;">
-                    <label>Metric Threshold (optional)</label>
-                    <input type="number" id="inspectorMetricThreshold" class="inspector-input"
-                           value="${node.data.metricThreshold || ''}" min="0" max="1" step="0.01" placeholder="0.8">
-                </div>
-            </details>
         </div>
 
         <!-- Training Dataset -->
@@ -215,14 +167,12 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
 
         <!-- Validation Dataset -->
         <div class="inspector-section">
-            <details>
-                <summary style="cursor: pointer; font-weight: bold; margin-bottom: 8px;">Validation Dataset (optional)</summary>
-                <textarea id="inspectorValDataset" class="inspector-textarea code-editor" rows="6"
-                          placeholder='[{"input": "...", "output": "..."}]'>${JSON.stringify(node.data.valDataset, null, 2)}</textarea>
-                <div style="font-size: 10px; color: #888; margin-top: 4px;">
-                    ${node.data.valDataset.length > 0 ? `${node.data.valDataset.length} examples` : 'Auto-split from training if empty'}
-                </div>
-            </details>
+            <label>Validation Dataset (optional)</label>
+            <textarea id="inspectorValDataset" class="inspector-textarea code-editor" rows="10"
+                      placeholder='[&#10;  {"input": "What is 2+2?", "output": "4"},&#10;  {"input": "What is 3+3?", "output": "6"}&#10;]'>${JSON.stringify(node.data.valDataset, null, 2)}</textarea>
+            <div style="font-size: 10px; color: #888; margin-top: 4px;">
+                ${node.data.valDataset.length > 0 ? `${node.data.valDataset.length} examples` : 'Auto-split from training if empty'}
+            </div>
         </div>
 
         <!-- Results Display -->
@@ -251,8 +201,13 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
             <!-- Show sample demos -->
             ${node.data.optimizedDemos.length > 0 ? `
                 <div class="inspector-section">
-                    <details>
-                        <summary style="cursor: pointer; font-weight: bold;">Sample Demonstrations (${node.data.optimizedDemos.length})</summary>
+                    <div style="cursor: pointer; font-weight: bold; margin-bottom: 8px; display: flex; align-items: center;" id="demosToggle">
+                        <svg class="details-toggle" width="12" height="12" style="margin-right: 6px;">
+                            <use href="#icon-chevron-right"></use>
+                        </svg>
+                        Sample Demonstrations
+                    </div>
+                    <div id="demosContent" style="display: none;">
                         <div style="margin-top: 8px; max-height: 200px; overflow-y: auto;">
                             ${node.data.optimizedDemos.slice(0, 5).map((demo, i) => `
                                 <div style="background: #1a1a1a; padding: 8px; border-radius: 4px; margin-bottom: 8px; font-size: 11px;">
@@ -263,23 +218,9 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
                             `).join('')}
                             ${node.data.optimizedDemos.length > 5 ? `<div style="color: #888; font-size: 10px;">... and ${node.data.optimizedDemos.length - 5} more</div>` : ''}
                         </div>
-                    </details>
+                    </div>
                 </div>
             ` : ''}
-        ` : ''}
-
-        <!-- Optimization Log -->
-        ${node.data.optimizationLog.length > 0 ? `
-            <div class="inspector-section">
-                <details>
-                    <summary style="cursor: pointer; font-weight: bold;">Optimization Log (${node.data.optimizationLog.length})</summary>
-                    <div style="margin-top: 8px; max-height: 150px; overflow-y: auto; background: #1a1a1a; padding: 8px; border-radius: 4px; font-size: 10px; font-family: monospace;">
-                        ${node.data.optimizationLog.slice(-20).map(msg =>
-                            `<div style="margin-bottom: 4px; color: #888;">${msg}</div>`
-                        ).join('')}
-                    </div>
-                </details>
-            </div>
         ` : ''}
 
         <!-- Action Buttons -->
@@ -287,7 +228,7 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
             <button id="inspectorRunOptimize" class="inspector-button"
                     style="width: 100%; padding: 10px; background: ${buttonDisabled ? '#6c757d' : '#4a9eff'}; color: white; border: none; border-radius: 4px; cursor: ${buttonDisabled ? 'not-allowed' : 'pointer'}; font-size: 14px; opacity: ${buttonDisabled ? '0.6' : '1'};"
                     ${buttonDisabled ? 'disabled' : ''}>
-                Run Optimization
+                Run
             </button>
         </div>
 
@@ -296,7 +237,7 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
                 <button id="inspectorApplyToPrompt" class="inspector-button"
                         style="width: 100%; padding: 10px; background: ${applyButtonDisabled ? '#6c757d' : '#28a745'}; color: white; border: none; border-radius: 4px; cursor: ${applyButtonDisabled ? 'not-allowed' : 'pointer'}; font-size: 14px; opacity: ${applyButtonDisabled ? '0.6' : '1'};"
                         ${applyButtonDisabled ? 'disabled' : ''}>
-                    Apply to Prompt Node
+                    Apply
                 </button>
             </div>
         ` : ''}
@@ -311,21 +252,9 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
                 updateNodeDisplay(node.id);
             });
 
-            // Optimizer
-            const optimizerSelect = document.getElementById('inspectorOptimizer');
-            optimizerSelect.addEventListener('change', (e) => {
-                node.data.optimizer = e.target.value;
-                // Show/hide MIPRO-specific options
-                const miproMode = document.getElementById('miproModeSection');
-                const numTrials = document.getElementById('numTrialsSection');
-                if (e.target.value === 'MIPROv2') {
-                    if (miproMode) miproMode.style.display = 'block';
-                    if (numTrials) numTrials.style.display = 'block';
-                } else {
-                    if (miproMode) miproMode.style.display = 'none';
-                    if (numTrials) numTrials.style.display = 'none';
-                }
-                updateNodeDisplay(node.id);
+            // MIPRO Mode
+            document.getElementById('inspectorOptimizationMode').addEventListener('change', (e) => {
+                node.data.optimizationMode = e.target.value;
             });
 
             // Program Type
@@ -333,59 +262,11 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
                 node.data.programType = e.target.value;
             });
 
-            // MIPRO Mode
-            const modeSelect = document.getElementById('inspectorOptimizationMode');
-            if (modeSelect) {
-                modeSelect.addEventListener('change', (e) => {
-                    node.data.optimizationMode = e.target.value;
-                });
-            }
-
             // Metric Type
             const metricSelect = document.getElementById('inspectorMetricType');
             metricSelect.addEventListener('change', (e) => {
                 node.data.metricType = e.target.value;
-                // Show/hide metric-specific options
-                const caseSensitive = document.getElementById('caseSensitiveSection');
-
-                if (['exact_match', 'contains'].includes(e.target.value)) {
-                    if (caseSensitive) caseSensitive.style.display = 'block';
-                } else {
-                    if (caseSensitive) caseSensitive.style.display = 'none';
-                }
             });
-
-            // Case Sensitive
-            const caseSensitiveCheck = document.getElementById('inspectorMetricCaseSensitive');
-            if (caseSensitiveCheck) {
-                caseSensitiveCheck.addEventListener('change', (e) => {
-                    node.data.metricCaseSensitive = e.target.checked;
-                });
-            }
-
-            // Advanced Parameters
-            document.getElementById('inspectorMaxBootstrappedDemos').addEventListener('input', (e) => {
-                node.data.maxBootstrappedDemos = parseInt(e.target.value, 10) || 4;
-            });
-
-            document.getElementById('inspectorMaxLabeledDemos').addEventListener('input', (e) => {
-                node.data.maxLabeledDemos = parseInt(e.target.value, 10) || 16;
-            });
-
-            const numTrialsInput = document.getElementById('inspectorNumTrials');
-            if (numTrialsInput) {
-                numTrialsInput.addEventListener('input', (e) => {
-                    node.data.numTrials = parseInt(e.target.value, 10) || 30;
-                });
-            }
-
-            const thresholdInput = document.getElementById('inspectorMetricThreshold');
-            if (thresholdInput) {
-                thresholdInput.addEventListener('input', (e) => {
-                    const val = parseFloat(e.target.value);
-                    node.data.metricThreshold = isNaN(val) ? null : val;
-                });
-            }
 
             // Training Dataset
             document.getElementById('inspectorTrainDataset').addEventListener('input', (e) => {
@@ -438,6 +319,20 @@ function renderDSPyOptimizeInspector(node, updateNodeDisplay, edges, nodes, stat
             if (applyButton && context) {
                 applyButton.addEventListener('click', () => {
                     applyOptimizedPrompt(node, context.edges, context.nodes, context.addLog, context.updateNodeDisplay);
+                });
+            }
+
+            // Handle collapsible sections
+            const demosToggle = document.getElementById('demosToggle');
+            const demosContent = document.getElementById('demosContent');
+            if (demosToggle && demosContent) {
+                demosToggle.addEventListener('click', () => {
+                    const isOpen = demosContent.style.display !== 'none';
+                    demosContent.style.display = isOpen ? 'none' : 'block';
+                    const svg = demosToggle.querySelector('.details-toggle use');
+                    if (svg) {
+                        svg.setAttribute('href', isOpen ? '#icon-chevron-right' : '#icon-chevron-down');
+                    }
                 });
             }
         }
@@ -580,8 +475,10 @@ function applyOptimizedPrompt(dspyOptimizeNode, edges, nodes, addLog, updateNode
         promptNode.data.systemPrompt = instructionText;
         updateNodeDisplay(promptNode.id);
         addLog('info', `Applied optimized instruction to prompt node (score: ${(dspyOptimizeNode.data.validationScore * 100).toFixed(1)}%)`, dspyOptimizeNode.id);
+        addLog('info', `New system prompt: "${instructionText.substring(0, 200)}${instructionText.length > 200 ? '...' : ''}"`, dspyOptimizeNode.id);
     } else {
         addLog('warning', 'No instruction text found in optimization results', dspyOptimizeNode.id);
+        addLog('info', `optimizedSignature contents: ${JSON.stringify(dspyOptimizeNode.data.optimizedSignature)}`, dspyOptimizeNode.id);
     }
 }
 
@@ -625,6 +522,16 @@ async function executeDSPyOptimizeNode(
 
     addLog('info', 'Starting DSPy optimization...', dspyOptimizeNode.id);
 
+    // Find connected prompt node to get system prompt
+    const promptNode = findPromptNodeForModel(modelNode.id, edges, nodes);
+    const systemPrompt = promptNode ? (promptNode.data.systemPrompt || '') : '';
+
+    if (systemPrompt) {
+        addLog('info', `Using system prompt from connected prompt node`, dspyOptimizeNode.id);
+    } else {
+        addLog('warning', 'No system prompt found - DSPy will optimize from scratch', dspyOptimizeNode.id);
+    }
+
     try {
         // Build configuration for Python worker
         const config = {
@@ -633,6 +540,8 @@ async function executeDSPyOptimizeNode(
                 model: modelNode.data.model,
                 api_key: modelNode.data.apiKey || ''
             },
+            // Pass system prompt for DSPy to use as initial instruction
+            initial_instruction: systemPrompt,
             optimizer: dspyOptimizeNode.data.optimizer,
             optimizer_config: {
                 max_bootstrapped_demos: dspyOptimizeNode.data.maxBootstrappedDemos,
@@ -645,13 +554,12 @@ async function executeDSPyOptimizeNode(
                 metric_threshold: dspyOptimizeNode.data.metricThreshold
             },
             metric_config: {
-                type: dspyOptimizeNode.data.metricType,
-                case_sensitive: dspyOptimizeNode.data.metricCaseSensitive
+                type: dspyOptimizeNode.data.metricType
             },
             program_type: dspyOptimizeNode.data.programType,
             train_dataset: dspyOptimizeNode.data.trainDataset,
             val_dataset: dspyOptimizeNode.data.valDataset,
-            save_path: path.join(require('electron').remote.app.getPath('userData'), 'dspy_compiled', dspyOptimizeNode.id)
+            save_path: path.join(os.tmpdir(), 'prompt-ide', 'dspy_compiled', dspyOptimizeNode.id)
         };
 
         // Execute optimization with progress callback

@@ -26,8 +26,11 @@ async function executeDSPyOptimization(config, onProgress, signal = null) {
             return;
         }
 
-        // Determine Python command (try python3 first, fallback to python)
-        const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+        // Determine Python command
+        // Use Python 3.11 on Windows where DSPy is installed, otherwise try python3
+        const pythonCmd = process.platform === 'win32'
+            ? 'C:\\Users\\ojasj\\AppData\\Local\\Programs\\Python\\Python311\\python.exe'
+            : 'python3';
 
         // Spawn Python process
         let pythonProcess;
@@ -166,7 +169,9 @@ async function executeDSPyOptimization(config, onProgress, signal = null) {
  */
 async function checkDSPyEnvironment() {
     return new Promise((resolve) => {
-        const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+        const pythonCmd = process.platform === 'win32'
+            ? 'C:\\Users\\ojasj\\AppData\\Local\\Programs\\Python\\Python311\\python.exe'
+            : 'python3';
 
         // Check if Python is available
         const pythonCheck = spawn(pythonCmd, ['--version'], { stdio: 'pipe' });
@@ -238,7 +243,9 @@ async function checkDSPyEnvironment() {
  */
 async function installDSPy(onProgress) {
     return new Promise((resolve, reject) => {
-        const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+        const pythonCmd = process.platform === 'win32'
+            ? 'C:\\Users\\ojasj\\AppData\\Local\\Programs\\Python\\Python311\\python.exe'
+            : 'python3';
 
         onProgress('Installing DSPy... This may take a few minutes.');
 
@@ -298,8 +305,8 @@ function validateDSPyConfig(config) {
 
     if (!config.optimizer) {
         errors.push('optimizer is required');
-    } else if (!['BootstrapFewShot', 'MIPRO', 'MIPROv2'].includes(config.optimizer)) {
-        errors.push('optimizer must be one of: BootstrapFewShot, MIPRO, MIPROv2');
+    } else if (!['MIPRO', 'MIPROv2'].includes(config.optimizer)) {
+        errors.push('optimizer must be one of: MIPRO, MIPROv2');
     }
 
     if (!config.optimizer_config) {
