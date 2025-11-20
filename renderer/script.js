@@ -21,6 +21,13 @@ const {
     buildToolsCatalog,
     setGetAllToolNodes
 } = require('./tool-script');
+const {
+    createDSPyOptimizeNodeData,
+    renderDSPyOptimizeNode,
+    renderDSPyOptimizeInspector,
+    isValidDSPyOptimizeConnection,
+    executeDSPyOptimizeNode
+} = require('./dspy-optimize-script');
 const { executeToolInWorker } = require('./tool-worker-launcher');
 
 // ============================================================================
@@ -253,6 +260,8 @@ function createNode(type, worldX, worldY) {
         };
     } else if (type === 'optimize') {
         node.data = createEvolutionaryOptimizeNodeData();
+    } else if (type === 'dspy-optimize') {
+        node.data = createDSPyOptimizeNodeData();
     } else if (type === 'tool') {
         node.data = createToolNodeData();
     }
@@ -413,6 +422,8 @@ function renderNode(id) {
         `;
     } else if (node.type === 'optimize') {
         nodeEl.innerHTML = renderEvolutionaryOptimizeNode(node, state.edges, state.nodes);
+    } else if (node.type === 'dspy-optimize') {
+        nodeEl.innerHTML = renderDSPyOptimizeNode(node, state.edges, state.nodes);
     } else if (node.type === 'tool') {
         const connectedModels = findConnectedModels(node.id, state.edges, state.nodes);
         nodeEl.innerHTML = renderToolNode(node, connectedModels);
@@ -548,6 +559,11 @@ function isValidConnection(sourceNodeId, sourcePin, targetNodeId, targetPin) {
 
     // Check evolutionary optimize connections
     if (isValidEvolutionaryOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin, state.edges)) {
+        return true;
+    }
+
+    // Check DSPy optimize connections
+    if (isValidDSPyOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin, state.edges)) {
         return true;
     }
 
@@ -870,6 +886,16 @@ function updateInspector() {
             setNodeStatus,
             addLog,
             runOptimizeNode,
+            updateNodeDisplay
+        });
+    } else if (node.type === 'dspy-optimize') {
+        const inspector = renderDSPyOptimizeInspector(node, updateNodeDisplay, state.edges, state.nodes, state);
+        inspectorContent.innerHTML = inspector.html;
+        inspector.setupListeners({
+            runOptimizeNode,
+            edges: state.edges,
+            nodes: state.nodes,
+            addLog,
             updateNodeDisplay
         });
     } else if (node.type === 'tool') {
@@ -1630,7 +1656,7 @@ function findOptimizeNodesToRun(edges, nodes) {
  */
 async function runOptimizeNode(nodeId) {
     const optimizeNode = state.nodes.get(nodeId);
-    if (!optimizeNode || optimizeNode.type !== 'optimize') return;
+    if (!optimizeNode || (optimizeNode.type !== 'optimize' && optimizeNode.type !== 'dspy-optimize')) return;
 
     // Disable run buttons
     state.isOptimizing = true;
@@ -1645,16 +1671,28 @@ async function runOptimizeNode(nodeId) {
     state.optimizationAbortController = new AbortController();
 
     try {
-        await executeEvolutionaryOptimizeNode(
-            optimizeNode,
-            state.edges,
-            state.nodes,
-            callModelStreaming,
-            updateNodeDisplay,
-            setNodeStatus,
-            addLog,
-            state.optimizationAbortController.signal
-        );
+        if (optimizeNode.type === 'optimize') {
+            await executeEvolutionaryOptimizeNode(
+                optimizeNode,
+                state.edges,
+                state.nodes,
+                callModelStreaming,
+                updateNodeDisplay,
+                setNodeStatus,
+                addLog,
+                state.optimizationAbortController.signal
+            );
+        } else if (optimizeNode.type === 'dspy-optimize') {
+            await executeDSPyOptimizeNode(
+                optimizeNode,
+                state.edges,
+                state.nodes,
+                updateNodeDisplay,
+                setNodeStatus,
+                addLog,
+                state.optimizationAbortController.signal
+            );
+        }
     } finally {
         // Re-enable run buttons
         state.isOptimizing = false;
@@ -2610,7 +2648,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     const container = document.getElementById('canvasContainer');
     container.addEventListener('mousedown', onCanvasMouseDown);
     container.addEventListener('mousemove', onCanvasMouseMove);
-    container.addEventListener('mouseup', onCanvasMouseUp);
+    // Attach mouseup to document to ensure dragging/panning state is cleared
+    // even when mouse is released outside the canvas (e.g., over inspector panel)
+    document.addEventListener('mouseup', onCanvasMouseUp);
     container.addEventListener('wheel', onCanvasWheel);
     container.addEventListener('drop', onCanvasDrop);
     container.addEventListener('dragover', onCanvasDragOver);

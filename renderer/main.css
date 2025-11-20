@@ -285,7 +285,8 @@ body.panning {
     gap: 6px;
 }
 
-.collapse-toggle {
+.collapse-toggle,
+.details-toggle {
     cursor: pointer;
     user-select: none;
     color: #aaa;
@@ -297,16 +298,19 @@ body.panning {
     pointer-events: all;
 }
 
-.collapse-toggle * {
+.collapse-toggle *,
+.details-toggle * {
     pointer-events: none;
 }
 
-.collapse-toggle:hover {
+.collapse-toggle:hover,
+.details-toggle:hover {
     color: #4a90e2;
     transform: scale(1.15);
 }
 
-.collapse-toggle:active {
+.collapse-toggle:active,
+.details-toggle:active {
     transform: scale(1.0);
 }
 
