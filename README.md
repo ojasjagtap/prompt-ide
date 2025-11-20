@@ -2,7 +2,7 @@
 
 A visual flow-based IDE for prompt engineering, testing, and optimization with Large Language Models.
 
-![Demo](images/demo.png)
+![Demo](assets/demo.png)
 
 ## Overview
 
@@ -77,7 +77,6 @@ prompt-ide/
 │   ├── modelService.js      # Model API interactions
 │   ├── providerRegistry.js  # Provider management
 │   └── config.js            # Configuration
-├── images/                  # Screenshots and assets
 └── package.json             # Dependencies and metadata
 ```
 

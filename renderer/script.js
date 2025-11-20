@@ -28,6 +28,7 @@ const {
     isValidDSPyOptimizeConnection,
     executeDSPyOptimizeNode
 } = require('./dspy-optimize-script');
+const { checkDSPyEnvironment } = require('./dspy-worker');
 const { executeToolInWorker } = require('./tool-worker-launcher');
 
 // ============================================================================
@@ -262,6 +263,18 @@ function createNode(type, worldX, worldY) {
         node.data = createEvolutionaryOptimizeNodeData();
     } else if (type === 'dspy-optimize') {
         node.data = createDSPyOptimizeNodeData();
+        // Check DSPy dependencies when node is created
+        checkDSPyEnvironment().then(envCheck => {
+            if (!envCheck.dspy_installed) {
+                const pythonCmd = process.platform === 'win32'
+                    ? 'C:\\Users\\ojasj\\AppData\\Local\\Programs\\Python\\Python311\\python.exe'
+                    : 'python3';
+                const installCmd = `${pythonCmd} -m pip install dspy-ai`;
+                addLog('warn', `DSPy dependencies not found. Please install them by running: ${installCmd}`);
+            }
+        }).catch(err => {
+            addLog('warn', `Unable to check DSPy dependencies: ${err.message}`);
+        });
     } else if (type === 'tool') {
         node.data = createToolNodeData();
     }

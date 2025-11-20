@@ -2,25 +2,64 @@
 
 Visual prompt optimization using Stanford NLP's DSPy library.
 
+## Quick Summary
+
+The DSPy node automatically improves your prompts using machine learning. Instead of manually tweaking prompts, you provide examples of what you want (input/output pairs), and DSPy finds the best instruction and few-shot examples for you.
+
+**In 3 steps**:
+1. Connect: Prompt → Model → DSPy
+2. Add training examples (8-10 input/output pairs)
+3. Click Run, then Apply to use the optimized prompt
+
+---
+
+## Prerequisites (First-Time Setup)
+
+Before using the DSPy node, you need:
+
+### 1. Python 3.8 or higher
+**Check if installed**:
+```bash
+python --version
+```
+
+**Don't have Python?** Download from [python.org](https://www.python.org/downloads/)
+
+### 2. DSPy Library
+**The app will prompt you to install this automatically** when you first drag a DSPy node onto the canvas.
+
+**Or install manually**:
+```bash
+pip install dspy-ai
+```
+
+### 3. Language Model (choose one)
+
+**Option A: Ollama (Local, Free)**
+- Install from [ollama.com](https://ollama.com)
+- Run: `ollama serve`
+- Pull a model: `ollama pull llama3.2:1b`
+
+**Option B: OpenAI (Cloud, Paid)**
+- Get API key from [platform.openai.com](https://platform.openai.com)
+- Configure in app Settings
+
+**Option C: Anthropic Claude (Cloud, Paid)**
+- Get API key from [console.anthropic.com](https://console.anthropic.com)
+- Configure in app Settings
+
 ## What is DSPy?
 
 **DSPy** (Declarative Self-improving Python) is a framework from Stanford NLP for programmatically optimizing prompts and language model pipelines. Instead of manually tweaking prompts through trial and error, DSPy uses algorithms to automatically find better prompts based on your training data.
 
-### How DSPy Works
+### How It Works
 
 1. **You provide examples**: Input/output pairs showing what you want the model to do
 2. **DSPy generates variations**: It creates different prompt versions and few-shot examples
 3. **It evaluates each**: Tests them against your data using a metric
 4. **Returns the best**: Gives you the optimized prompt that performed best
 
-### Key Concepts
-
-- **Signatures**: Define input → output (e.g., "question → answer")
-- **Modules**: Building blocks like `Predict` or `ChainOfThought`
-- **Optimizers**: Algorithms that find better prompts (BootstrapFewShot, MIPRO)
-- **Metrics**: Functions that score how good an output is
-
-### Why Use DSPy?
+### Key Benefits
 
 | Manual Prompting | DSPy Optimization |
 |------------------|-------------------|
@@ -174,51 +213,125 @@ if (isValidDSPyOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin, 
 
 ---
 
+## How to Use the DSPy Node
+
+### Node Configuration Panel
+
+When you select the DSPy node, the inspector panel shows these options:
+
+#### 1. **MIPRO Mode** (Light/Medium/Heavy)
+Controls the thoroughness of optimization. This affects how many instruction candidates are tested.
+- **Light**: ~30 trials, 5-10 minutes
+- **Medium**: More trials, better results, 15-30 minutes
+- **Heavy**: Maximum trials, best results, 30-60 minutes
+
+#### 2. **Program Type**
+Defines how the model responds:
+- **Predict**: Direct answer (most common)
+- **Chain of Thought**: Shows reasoning steps before answer
+- **ReAct**: For complex tasks with reasoning and actions
+
+#### 3. **Metric Type**
+How DSPy evaluates if outputs are correct:
+- **exact_match**: Output must exactly match expected answer
+- **contains**: Expected answer must appear somewhere in output
+- **semantic_f1**: Measures semantic similarity (word overlap)
+
+#### 4. **Training Dataset**
+JSON array of input/output pairs. Format:
+```json
+[
+  {"input": "your question", "output": "expected answer"},
+  {"input": "another question", "output": "expected answer"}
+]
+```
+Minimum: 1 example (recommended: 8-20 for Light mode)
+
+#### 5. **Validation Dataset** (optional)
+Separate test set to measure performance. If empty, DSPy auto-splits 20% from training data.
+
+#### 6. **Run Button**
+Starts the optimization process. The node will:
+1. Send your dataset to DSPy
+2. Test different instruction variations
+3. Select best few-shot demonstrations
+4. Report validation score
+
+#### 7. **Apply Button**
+Copies the optimized instruction to your connected Prompt node. Use this after optimization succeeds.
+
+### Workflow
+
+```
+1. Configure Model → 2. Add Examples → 3. Click Run → 4. Review Score → 5. Click Apply
+```
+
+After applying, your Prompt node will have an optimized system prompt that performs better on similar tasks.
+
+---
+
 ## Configuration Options
 
-### Optimizers
+### MIPRO Mode
 
-| Optimizer | Best For | Time | Description |
-|-----------|----------|------|-------------|
-| BootstrapFewShot | 5-50 examples | 5-10 min | Generates few-shot demos |
-| MIPROv2 | 50-300 examples | 20-60 min | Optimizes instructions + demos |
+The node uses **MIPROv2** (Multi-prompt Instruction Proposal Optimizer) which optimizes both instructions and few-shot demonstrations using Bayesian optimization.
 
-### Metrics
+| Mode | Speed | Best For | Description |
+|------|-------|----------|-------------|
+| Light | Fast (5-10 min) | 5-20 examples | Quick optimization, fewer trials |
+| Medium | Moderate (15-30 min) | 20-100 examples | Balanced performance |
+| Heavy | Slow (30-60 min) | 100+ examples | Thorough search, best results |
 
-| Metric | Use Case | Example |
-|--------|----------|---------|
-| exact_match | Precise answers | "4" = "4" |
-| contains | Flexible match | "4" in "The answer is 4" |
-| semantic_f1 | Meaning similarity | Similar semantics |
+**Recommendation**: Start with Light mode, upgrade to Heavy for production.
 
 ### Program Types
 
 | Type | Description | Use Case |
 |------|-------------|----------|
-| predict | Direct answer | Simple Q&A |
-| chain_of_thought | Shows reasoning | Math, logic |
-| react | Reasoning + acting | Complex tasks |
+| Predict | Direct answer | Simple Q&A, classification |
+| Chain of Thought | Shows reasoning steps | Math problems, logical reasoning |
+| ReAct | Reasoning + actions | Complex multi-step tasks |
+
+**Recommendation**: Use Predict for most tasks, Chain of Thought for tasks requiring explanation.
+
+### Metrics
+
+The metric determines how DSPy evaluates if an output is correct:
+
+| Metric | Use Case | Example |
+|--------|----------|---------|
+| exact_match | Precise answers required | "4" = "4" ✓, "4.0" = "4" ✗ |
+| contains | Flexible matching | "4" in "The answer is 4" ✓ |
+| semantic_f1 | Meaning similarity | Compares semantic overlap |
+
+**Recommendation**: Use exact_match for single-word answers, contains for natural language.
+
+---
+
+## Quick Start Guide
+
+### Setup Flow
+1. Add **Prompt** node → **Model** node → **DSPy** node to canvas
+2. Connect them: Prompt.prompt → Model.prompt, Model.output → DSPy.input
+3. Configure model (e.g., Ollama with llama3.2:1b)
+4. Add training data to DSPy node
+5. Click **Run** to optimize
+6. Click **Apply** to copy optimized instruction to Prompt node
 
 ---
 
 ## Examples to Try
 
-### Example 1: Math Tutor (5 minutes)
+### Example 1: Simple Math (5 minutes)
+
+**Goal**: Optimize a prompt for basic arithmetic
 
 **Setup**:
-1. Add Prompt node, Model node, and DSPy Optimize node
-2. Connect Prompt → Model → DSPy Optimize
+- **MIPRO Mode**: Light
+- **Program Type**: Predict
+- **Metric**: exact_match
 
-**Prompt node**:
-```
-System Prompt: You are a math tutor.
-```
-
-**DSPy Optimize settings**:
-- Optimizer: BootstrapFewShot
-- Metric: exact_match
-
-**Dataset**:
+**Training Dataset**:
 ```json
 [
   {"input": "What is 2+2?", "output": "4"},
@@ -232,13 +345,23 @@ System Prompt: You are a math tutor.
 ]
 ```
 
-**Expected result**: ~80-90% accuracy, optimized instruction, 4 demos
+**Expected Results**:
+- Validation score: ~80-100%
+- DSPy will generate an optimized instruction like "Answer with just the number"
+- 3-4 few-shot demonstrations will be selected
 
 ---
 
 ### Example 2: Capital Cities (5 minutes)
 
-**Dataset**:
+**Goal**: Create a geography quiz bot
+
+**Setup**:
+- **MIPRO Mode**: Light
+- **Program Type**: Predict
+- **Metric**: exact_match
+
+**Training Dataset**:
 ```json
 [
   {"input": "What is the capital of France?", "output": "Paris"},
@@ -252,13 +375,22 @@ System Prompt: You are a math tutor.
 ]
 ```
 
-**Settings**: BootstrapFewShot, exact_match
+**Expected Results**:
+- Validation score: ~90-100%
+- Optimized to answer with just the city name
 
 ---
 
 ### Example 3: Sentiment Analysis (5 minutes)
 
-**Dataset**:
+**Goal**: Classify customer feedback sentiment
+
+**Setup**:
+- **MIPRO Mode**: Light
+- **Program Type**: Predict
+- **Metric**: exact_match
+
+**Training Dataset**:
 ```json
 [
   {"input": "I love this product!", "output": "positive"},
@@ -272,13 +404,22 @@ System Prompt: You are a math tutor.
 ]
 ```
 
-**Settings**: BootstrapFewShot, exact_match
+**Expected Results**:
+- Validation score: ~70-90%
+- DSPy learns to classify emotional tone
 
 ---
 
-### Example 4: Text Classification with Contains (10 minutes)
+### Example 4: Customer Support Routing (10 minutes)
 
-**Dataset**:
+**Goal**: Automatically categorize support tickets
+
+**Setup**:
+- **MIPRO Mode**: Light
+- **Program Type**: Predict
+- **Metric**: contains (more flexible for category names)
+
+**Training Dataset**:
 ```json
 [
   {"input": "How do I reset my password?", "output": "account"},
@@ -286,7 +427,7 @@ System Prompt: You are a math tutor.
   {"input": "I want a refund", "output": "billing"},
   {"input": "Can't log into my account", "output": "account"},
   {"input": "Where is my package?", "output": "shipping"},
-  {"input": "Charge me incorrectly", "output": "billing"},
+  {"input": "Charged me incorrectly", "output": "billing"},
   {"input": "Change my email address", "output": "account"},
   {"input": "Tracking number not working", "output": "shipping"},
   {"input": "Cancel my subscription", "output": "billing"},
@@ -294,15 +435,20 @@ System Prompt: You are a math tutor.
 ]
 ```
 
-**Settings**:
-- Optimizer: BootstrapFewShot
-- Metric: **contains** (more flexible than exact_match)
+**Why use "contains" metric?**: It allows the model to output "billing issue" or "billing" and both match.
 
 ---
 
-### Example 5: Chain of Thought Math (15 minutes)
+### Example 5: Word Problems with Reasoning (10 minutes)
 
-**Dataset**:
+**Goal**: Solve math word problems with step-by-step reasoning
+
+**Setup**:
+- **MIPRO Mode**: Light
+- **Program Type**: chain_of_thought (shows reasoning!)
+- **Metric**: contains
+
+**Training Dataset**:
 ```json
 [
   {"input": "If I have 5 apples and give away 2, how many do I have?", "output": "3"},
@@ -314,25 +460,22 @@ System Prompt: You are a math tutor.
 ]
 ```
 
-**Settings**:
-- Optimizer: BootstrapFewShot
-- Metric: contains
-- **Program Type: chain_of_thought** (shows reasoning)
+**What's different?**: Chain of Thought makes the model explain its reasoning before answering.
 
 ---
 
-### Example 6: MIPRO Optimization (20 minutes)
+### Example 6: Advanced Optimization (20+ minutes)
 
-For better results with more data, try MIPRO:
+**Goal**: Maximum accuracy on larger dataset
 
-**Dataset**: Use 20+ examples from any category above
+**Setup**:
+- **MIPRO Mode**: Heavy (thorough search)
+- **Program Type**: Predict or chain_of_thought
+- **Metric**: Choose based on task
 
-**Settings**:
-- **Optimizer: MIPROv2**
-- **Mode: light**
-- Metric: exact_match or contains
+**Training Dataset**: Use 20-50 examples from any category above
 
-MIPRO optimizes both instructions AND few-shot examples using Bayesian optimization.
+**Results**: Heavy mode runs more trials, tests more instruction candidates, and typically achieves 5-15% higher accuracy than Light mode.
 
 ---
 
@@ -367,69 +510,77 @@ Configure API key in app Settings
 ## Troubleshooting
 
 ### "Python not found"
-Install Python 3.8+ and add to PATH
+**Solution**: Install Python 3.8+ from python.org and ensure it's in your PATH
 
 ### "DSPy not installed"
+**Solution**: Run in terminal:
 ```bash
 pip install dspy-ai
 ```
 
-### "Connection refused"
-Start Ollama: `ollama serve`
+### "Connection refused" (Ollama)
+**Solution**: Make sure Ollama is running:
+```bash
+ollama serve
+```
 
-### Low validation scores
-- Add more examples (10+ recommended)
-- Try "contains" instead of "exact_match"
-- Use MIPRO for better results
-- Check output format consistency
+### Low validation scores (<50%)
+**Possible causes**:
+1. **Inconsistent outputs**: Check that all expected outputs follow same format
+2. **Wrong metric**: Try `contains` instead of `exact_match`
+3. **Too few examples**: Add more diverse examples (aim for 10+)
+4. **Weak model**: Try a larger model (e.g., llama3.2:3b instead of :1b)
+
+**Try this**:
+- Switch metric to `contains`
+- Add 5-10 more examples
+- Upgrade to Medium or Heavy mode
 
 ### Optimization takes too long
-- Use BootstrapFewShot instead of MIPRO
-- Reduce dataset size
-- Use "light" mode for MIPRO
+**Solution**:
+- Use Light mode (fastest, ~5-10 min)
+- Reduce training dataset to 10-15 examples
+- Use a faster/smaller model for optimization
+
+### "No model node connected" error
+**Solution**: Connect the flow: Prompt → Model → DSPy
+- Drag connection from Model's "output" pin to DSPy's "input" pin
+
+### Node shows "error" status
+**Check the logs panel** (bottom of screen) for specific error messages. Common issues:
+- JSON syntax error in dataset
+- Model API key missing
+- Ollama model not pulled (`ollama pull llama3.2:1b`)
 
 ---
 
 ## How It All Works Together
 
-```
-User Action                    System Response
------------                    ---------------
+When you click **Run**, here's what happens:
 
-1. Drag DSPy node      →   createDSPyOptimizeNodeData()
-   onto canvas              creates node with default config
+1. **Node collects config**: Your dataset, metric, MIPRO mode, etc.
+2. **Spawns Python worker**: Launches `dspy_optimizer.py` as subprocess
+3. **DSPy runs optimization**: Tests multiple instruction variations using Bayesian optimization
+4. **Progress updates**: Real-time logs appear in the logs panel
+5. **Results return**: Validation score, optimized instruction, and demos
+6. **Apply to Prompt**: Click **Apply** to update your Prompt node with the optimized instruction
 
-2. Select node         →   renderDSPyOptimizeInspector()
-                            shows configuration UI
-
-3. Edit dataset        →   JSON parsed and stored in
-   in inspector             node.data.trainDataset
-
-4. Click "Run"         →   executeDSPyOptimizeNode()
-                            builds config, calls bridge
-
-5. Bridge spawns       →   dspy_optimizer.py reads config,
-   Python process           runs DSPy optimization
-
-6. Progress streams    →   onProgress callback updates
-   back to Node.js          logs panel in real-time
-
-7. Results return      →   node.data updated with
-                            score, instructions, demos
-
-8. Click "Apply"       →   applyOptimizedPrompt()
-                            copies to connected Prompt node
-```
+The entire process keeps your UI responsive with progress updates every few seconds.
 
 ---
 
 ## Tips for Best Results
 
-1. **Start small**: 5-10 examples, BootstrapFewShot
-2. **Consistent format**: Outputs should follow same pattern
-3. **Diverse examples**: Cover different input types
-4. **Right metric**: exact_match for precise, contains for flexible
-5. **Iterate**: Check results, add examples, re-run
+1. **Start with Light mode**: Test with 8-10 examples before scaling up
+2. **Consistent output format**: Keep answers in same style (all lowercase, same units, etc.)
+3. **Diverse inputs**: Cover different phrasings and edge cases
+4. **Choose the right metric**:
+   - `exact_match`: Single-word answers (numbers, categories)
+   - `contains`: Natural language, sentences
+   - `semantic_f1`: When meaning matters more than exact words
+5. **Iterate**: Check validation score → add more examples → try Medium/Heavy mode
+6. **Use validation set**: Split 80/20 train/val for more reliable scores
+7. **Chain of Thought**: Use for math or logic tasks requiring explanation
 
 ---
 
