@@ -93,7 +93,10 @@ const state = {
     currentFilePath: null,
     isDirty: false,
     lastManualSave: null,
-    autoSaveInterval: null
+    autoSaveInterval: null,
+
+    // Editor settings
+    snapToGrid: false
 };
 
 // ============================================================================
@@ -142,6 +145,15 @@ function clamp(value, min, max) {
 function formatTimestamp() {
     const now = new Date();
     return now.toLocaleTimeString('en-US', { hour12: false });
+}
+
+/**
+ * Snap a coordinate to the nearest grid line
+ * @param {number} value - The coordinate value to snap
+ * @returns {number} The snapped coordinate
+ */
+function snapToGrid(value) {
+    return Math.round(value / TILE_SIZE) * TILE_SIZE;
 }
 
 // ============================================================================
@@ -1088,8 +1100,17 @@ function onCanvasMouseMove(e) {
         const world = screenToWorld(x, y);
         const node = state.nodes.get(state.draggedNodeId);
         if (node) {
-            node.x = world.x - state.dragOffsetX;
-            node.y = world.y - state.dragOffsetY;
+            let newX = world.x - state.dragOffsetX;
+            let newY = world.y - state.dragOffsetY;
+
+            // Apply grid snapping if enabled
+            if (state.snapToGrid) {
+                newX = snapToGrid(newX);
+                newY = snapToGrid(newY);
+            }
+
+            node.x = newX;
+            node.y = newY;
 
             // Directly update DOM element position during drag
             const nodeEl = document.getElementById(state.draggedNodeId);
@@ -2212,6 +2233,10 @@ async function openSettingsModal() {
 
     // Update status
     await updateOpenAIStatus();
+
+    // Load snap-to-grid setting
+    const snapToGridCheckbox = document.getElementById('snapToGridCheckbox');
+    snapToGridCheckbox.checked = state.snapToGrid;
 }
 
 function closeSettingsModal() {
@@ -2677,6 +2702,12 @@ function stopAutoSave() {
 // ============================================================================
 
 document.addEventListener('DOMContentLoaded', async function() {
+    // Load editor settings from localStorage
+    const savedSnapToGrid = localStorage.getItem('snapToGrid');
+    if (savedSnapToGrid !== null) {
+        state.snapToGrid = savedSnapToGrid === 'true';
+    }
+
     // Set up tool node helpers
     setGetAllToolNodes(() => {
         return Array.from(state.nodes.values()).filter(n => n.type === 'tool');
@@ -2729,6 +2760,12 @@ document.addEventListener('DOMContentLoaded', async function() {
     document.getElementById('closeSettingsButton').addEventListener('click', closeSettingsModal);
     document.getElementById('saveOpenaiButton').addEventListener('click', saveOpenAISettings);
     document.getElementById('removeOpenaiButton').addEventListener('click', removeOpenAISettings);
+
+    // Snap to grid checkbox
+    document.getElementById('snapToGridCheckbox').addEventListener('change', (e) => {
+        state.snapToGrid = e.target.checked;
+        localStorage.setItem('snapToGrid', state.snapToGrid);
+    });
 
     // Close modal when clicking outside
     document.getElementById('settingsModal').addEventListener('click', (e) => {
