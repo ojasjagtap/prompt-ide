@@ -20,7 +20,7 @@ Prompt IDE is a cross-platform desktop application that provides a node-based in
 - **Prompt Node** - Define system and user prompts
 - **Model Node** - Execute LLM inference with configurable parameters
 - **Tool Node** - Create custom JavaScript tools for LLMs to call
-- **Evolutionary Optimize Node** - Automatically improve prompts using genetic algorithms
+- **DSPy Node** - Optimize prompts using the DSPy framework with automatic few-shot learning
 
 ### Multi-Provider Support
 - **Ollama** - Run local models (default: localhost:11434)
@@ -33,10 +33,10 @@ Prompt IDE is a cross-platform desktop application that provides a node-based in
 - Sandboxed execution in web workers
 - Automatic tool registration with compatible models
 
-### Evolutionary Optimization
-- Genetic algorithm-based prompt optimization
-- Multiple evaluation metrics (BLEU score, Levenshtein distance)
-- Configurable hyperparameters (population size, mutation rate, generations)
+### DSPy Integration
+- Prompt optimization using the DSPy framework
+- Automatic few-shot example selection
+- Signature-based prompt compilation
 - Test dataset evaluation with real-time progress tracking
 
 ### Workflow Management
@@ -70,7 +70,7 @@ prompt-ide/
 │   ├── main.css             # Application styles
 │   ├── script.js            # Core app logic and state
 │   ├── model-adapters.js    # Provider-specific adapters
-│   ├── evolutionary-optimize-script.js  # Optimization algorithms
+│   ├── dspy-script.js       # DSPy optimization logic
 │   ├── tool-script.js       # Tool node implementation
 │   └── tool-worker.js       # Sandboxed tool execution
 ├── services/                # Business logic
@@ -126,10 +126,10 @@ npm start
    - Click "Run Flow" to execute
 
 3. **Optimize Prompts**
-   - Add an Evolutionary Optimize node
-   - Define test cases and evaluation metrics
+   - Add a DSPy node
+   - Define test cases and input/output signatures
    - Configure optimization parameters
-   - Run to automatically improve your prompt
+   - Run to automatically improve your prompt with few-shot learning
 
 ## Use Cases
 
@@ -138,11 +138,3 @@ npm start
 - Complex multi-step LLM workflows
 - Tool development and testing for LLM function calling
 - Automated prompt optimization
-
-## Development
-
-Built with:
-- Electron 38.2.0
-- CommonJS modules
-- Native HTML5 Canvas and SVG rendering
-- No bundler or transpiler required
