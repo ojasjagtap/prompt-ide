@@ -606,10 +606,176 @@ class ClaudeAdapter extends ModelAdapter {
     }
 }
 
+/**
+ * Google Gemini Adapter with native function calling support
+ */
+class GeminiAdapter extends ModelAdapter {
+    constructor({ apiKey }) {
+        super();
+        this.apiKey = apiKey;
+    }
+
+    prepareRequest({ prompt, toolsCatalog, settings, sessionState }) {
+        const hasTools = toolsCatalog && toolsCatalog.length > 0;
+
+        // Build contents array (Gemini format)
+        // Initialize contents if not present
+        if (!sessionState.contents || sessionState.contents.length === 0) {
+            sessionState.contents = [
+                {
+                    role: 'user',
+                    parts: [{ text: prompt }]
+                }
+            ];
+        }
+
+        const body = {
+            contents: sessionState.contents,
+            generationConfig: {
+                temperature: settings.temperature,
+                maxOutputTokens: settings.maxTokens
+            }
+        };
+
+        // Add system instruction if tools are present
+        if (hasTools) {
+            body.systemInstruction = {
+                parts: [{
+                    text: 'You are a helpful assistant. You have access to tools that you can use when needed. However, if the user\'s question can be answered directly without using any tools, you should respond directly. Only use tools when they are necessary to complete the task.'
+                }]
+            };
+        }
+
+        // Add tools if present (Gemini format)
+        if (hasTools) {
+            body.tools = [{
+                functionDeclarations: toolsCatalog.map(tool => ({
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: tool.parametersSchema
+                }))
+            }];
+        }
+
+        return { body, useChat: true };
+    }
+
+    parseChunk(chunk, chunkState) {
+        const result = { textDelta: null, toolCalls: null };
+
+        try {
+            const lines = chunk.split('\n').filter(l => l.trim());
+
+            for (const line of lines) {
+                // Gemini streams with "data: " prefix (SSE format)
+                if (!line.startsWith('data: ')) continue;
+
+                const data = JSON.parse(line.substring(6));
+
+                // Gemini response structure: candidates array
+                const candidate = data.candidates?.[0];
+                if (!candidate) continue;
+
+                const content = candidate.content;
+                if (!content || !content.parts) continue;
+
+                // Process each part in the content
+                for (const part of content.parts) {
+                    // Text content
+                    if (part.text) {
+                        result.textDelta = part.text;
+                    }
+
+                    // Function call (Gemini format)
+                    if (part.functionCall) {
+                        const fc = part.functionCall;
+
+                        // Check if this is a complete function call or if we need to accumulate
+                        if (!chunkState.currentFunctionCall) {
+                            chunkState.currentFunctionCall = {
+                                name: fc.name,
+                                args: fc.args || {}
+                            };
+                        } else {
+                            // Merge arguments if streaming partial args
+                            Object.assign(chunkState.currentFunctionCall.args, fc.args || {});
+                        }
+                    }
+                }
+
+                // Check for finish reason indicating function call completion
+                if (candidate.finishReason === 'STOP' && chunkState.currentFunctionCall) {
+                    result.toolCalls = [{
+                        id: `gemini_${Date.now()}`, // Gemini doesn't provide IDs, so we generate one
+                        name: chunkState.currentFunctionCall.name,
+                        arguments: chunkState.currentFunctionCall.args
+                    }];
+                    chunkState.currentFunctionCall = null;
+                }
+            }
+        } catch (error) {
+            // Ignore parse errors for partial chunks
+        }
+
+        return result;
+    }
+
+    continueWithToolResult(sessionState, toolResult) {
+        // Add the assistant's function call message
+        if (!sessionState.lastFunctionCall) {
+            // This should have been stored during tool call detection
+            // For safety, we'll add a basic structure
+            sessionState.contents.push({
+                role: 'model',
+                parts: [{
+                    functionCall: {
+                        name: toolResult.name,
+                        args: toolResult.arguments || {}
+                    }
+                }]
+            });
+        }
+
+        // Add the function response (Gemini format)
+        sessionState.contents.push({
+            role: 'function',
+            parts: [{
+                functionResponse: {
+                    name: toolResult.name,
+                    response: {
+                        result: this.formatToolResultForModel(toolResult.normalized)
+                    }
+                }
+            }]
+        });
+
+        return sessionState;
+    }
+
+    formatToolResultForModel(normalized) {
+        if (!normalized.ok) {
+            return {
+                error: normalized.error.message || 'Unknown error'
+            };
+        }
+
+        if (normalized.kind === 'text') {
+            return { text: normalized.result };
+        } else if (normalized.kind === 'json') {
+            return normalized.result;
+        } else if (normalized.kind === 'bytes') {
+            return { data: `[Base64 Data: ${normalized.result.length} chars]` };
+        }
+
+        return { result: String(normalized.result) };
+    }
+}
+
 module.exports = {
     ModelAdapter,
     OllamaAdapter,
     OpenAIAdapter,
     ClaudeAdapter,
+    GeminiAdapter,
     FallbackPromptAdapter
 };

@@ -1994,6 +1994,21 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
                 'x-api-key': apiKey,
                 'anthropic-version': '2023-06-01'
             };
+        } else if (provider === 'gemini') {
+            // Gemini uses model name in URL path
+            const modelName = settings.model;
+            const apiKey = await providerRegistry.getApiKey('gemini');
+
+            if (!apiKey) {
+                throw new Error('Gemini API key not configured');
+            }
+
+            // Gemini streaming endpoint with SSE format
+            url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`;
+
+            headers = {
+                'Content-Type': 'application/json'
+            };
         } else {
             throw new Error(`Unsupported provider: ${provider}`);
         }
@@ -2247,9 +2262,14 @@ async function openSettingsModal() {
     const claudeApiKey = await providerRegistry.getApiKey('claude');
     document.getElementById('claudeApiKey').value = claudeApiKey || '';
 
+    // Load current Gemini settings
+    const geminiApiKey = await providerRegistry.getApiKey('gemini');
+    document.getElementById('geminiApiKey').value = geminiApiKey || '';
+
     // Update status
     await updateOpenAIStatus();
     await updateClaudeStatus();
+    await updateGeminiStatus();
 
     // Load snap-to-grid setting
     const snapToGridCheckbox = document.getElementById('snapToGridCheckbox');
@@ -2360,6 +2380,57 @@ async function removeClaudeSettings() {
         document.getElementById('claudeApiKey').value = '';
         await updateClaudeStatus();
         addLog('info', 'Claude API key removed');
+    }
+}
+
+async function updateGeminiStatus() {
+    const statusEl = document.getElementById('geminiStatus');
+    const isConfigured = await providerRegistry.isProviderConfigured('gemini');
+
+    if (isConfigured) {
+        statusEl.textContent = 'Configured';
+        statusEl.className = 'provider-status provider-status-active';
+    } else {
+        statusEl.textContent = 'Not configured';
+        statusEl.className = 'provider-status';
+    }
+}
+
+async function saveGeminiSettings() {
+    const apiKey = document.getElementById('geminiApiKey').value.trim();
+
+    if (!apiKey) {
+        alert('Please enter an API key');
+        return;
+    }
+
+    try {
+        await providerRegistry.setApiKey('gemini', apiKey);
+        await updateGeminiStatus();
+
+        // Try to fetch models to validate the key
+        const models = await providerRegistry.listModels('gemini');
+        addLog('info', `Gemini configured with ${models.length} models`);
+
+        // Refresh models in state if a model node is using Gemini
+        for (const node of state.nodes.values()) {
+            if (node.type === 'model' && node.data.provider === 'gemini') {
+                updateInspector();
+                break;
+            }
+        }
+    } catch (error) {
+        addLog('error', `provider_auth_error: gemini - ${error.message}`);
+        alert(`Failed to validate Gemini API key: ${error.message}`);
+    }
+}
+
+async function removeGeminiSettings() {
+    if (confirm('Are you sure you want to remove the Gemini API key?')) {
+        await providerRegistry.removeApiKey('gemini');
+        document.getElementById('geminiApiKey').value = '';
+        await updateGeminiStatus();
+        addLog('info', 'Gemini API key removed');
     }
 }
 
@@ -2830,6 +2901,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     document.getElementById('removeOpenaiButton').addEventListener('click', removeOpenAISettings);
     document.getElementById('saveClaudeButton').addEventListener('click', saveClaudeSettings);
     document.getElementById('removeClaudeButton').addEventListener('click', removeClaudeSettings);
+    document.getElementById('saveGeminiButton').addEventListener('click', saveGeminiSettings);
+    document.getElementById('removeGeminiButton').addEventListener('click', removeGeminiSettings);
 
     // Snap to grid checkbox
     document.getElementById('snapToGridCheckbox').addEventListener('change', (e) => {
