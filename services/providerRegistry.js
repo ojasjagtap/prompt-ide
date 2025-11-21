@@ -26,7 +26,13 @@ class ProviderRegistry {
 
         this.registerProvider({
             id: 'claude',
-            name: 'Claude (Anthropic)',
+            name: 'Anthropic',
+            requiresApiKey: true
+        });
+
+        this.registerProvider({
+            id: 'gemini',
+            name: 'Google',
             requiresApiKey: true
         });
     }
@@ -195,15 +201,67 @@ class ProviderRegistry {
                 throw error;
             }
         } else if (providerId === 'claude') {
-            // Claude/Anthropic doesn't have a models endpoint
-            // Return a curated list of available Claude models
-            models = [
-                { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
-                { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' },
-                { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },
-                { id: 'claude-3-sonnet-20240229', name: 'Claude 3 Sonnet' },
-                { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku' }
-            ];
+            const apiKey = await this.getApiKey('claude');
+            if (!apiKey) {
+                throw new Error('Claude API key not configured');
+            }
+
+            try {
+                const response = await fetch('https://api.anthropic.com/v1/models', {
+                    method: 'GET',
+                    headers: {
+                        'x-api-key': apiKey,
+                        'anthropic-version': '2023-06-01'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Claude list models failed: ${response.status}`);
+                }
+
+                const data = await response.json();
+                models = Array.isArray(data?.data)
+                    ? data.data.map(m => ({
+                        id: m.id,
+                        name: m.display_name || m.id
+                    }))
+                    : [];
+            } catch (error) {
+                console.error('provider_list_models_error: claude', error);
+                throw error;
+            }
+        } else if (providerId === 'gemini') {
+            const apiKey = await this.getApiKey('gemini');
+            if (!apiKey) {
+                throw new Error('Gemini API key not configured');
+            }
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, {
+                    method: 'GET'
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Gemini list models failed: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                // Filter to only models that support generateContent
+                const generativeModels = Array.isArray(data?.models)
+                    ? data.models.filter(m =>
+                        m.supportedGenerationMethods?.includes('generateContent')
+                    )
+                    : [];
+
+                models = generativeModels.map(m => ({
+                    id: m.name.replace('models/', ''), // Remove 'models/' prefix
+                    name: m.displayName || m.name.replace('models/', '')
+                }));
+            } catch (error) {
+                console.error('provider_list_models_error: gemini', error);
+                throw error;
+            }
         }
 
         // Cache the results
@@ -235,6 +293,12 @@ class ProviderRegistry {
             const { ClaudeAdapter } = require('../renderer/model-adapters');
             const apiKey = await this.getApiKey('claude');
             adapter = new ClaudeAdapter({
+                apiKey: apiKey
+            });
+        } else if (providerId === 'gemini') {
+            const { GeminiAdapter } = require('../renderer/model-adapters');
+            const apiKey = await this.getApiKey('gemini');
+            adapter = new GeminiAdapter({
                 apiKey: apiKey
             });
         }
