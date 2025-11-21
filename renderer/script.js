@@ -208,7 +208,7 @@ function updateLogsUI() {
                 <div class="log-entry ${levelClass} ${clickableClass}" ${dataNodeAttr} data-log-index="${index}">
                     <span class="log-timestamp">${log.timestamp}</span>
                     <span class="log-level">${log.level}</span>
-                    <span class="log-message">${nodeTitle}${log.message}</span>
+                    <span class="log-message" data-full-message="${escapeHtml(nodeTitle + log.message)}">${nodeTitle}${log.message}</span>
                 </div>
             `;
         }).join('');
@@ -232,10 +232,79 @@ function updateLogsUI() {
                 }
             });
         });
+
+        // Apply dynamic truncation to all log messages
+        truncateLongTokensInLogs();
     }
 
     // Always scroll to bottom when new logs arrive
     logsBody.scrollTop = logsBody.scrollHeight;
+}
+
+// Helper function to escape HTML for attributes
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Truncate individual tokens in log messages that are too wide to fit
+function truncateLongTokensInLogs() {
+    const logsBody = document.getElementById('logsBody');
+    const logMessages = logsBody.querySelectorAll('.log-message');
+
+    logMessages.forEach(messageEl => {
+        const fullMessage = messageEl.dataset.fullMessage || messageEl.textContent;
+        const availableWidth = messageEl.offsetWidth;
+
+        if (availableWidth === 0) return; // Skip if not visible
+
+        // Create a temporary span to measure text width
+        const measurer = document.createElement('span');
+        measurer.style.visibility = 'hidden';
+        measurer.style.position = 'absolute';
+        measurer.style.whiteSpace = 'nowrap';
+        measurer.style.font = window.getComputedStyle(messageEl).font;
+        document.body.appendChild(measurer);
+
+        // Split message into tokens (words and whitespace)
+        const tokens = fullMessage.split(/(\s+)/);
+        const processedTokens = tokens.map(token => {
+            if (!token.trim()) return token; // Preserve whitespace
+
+            // Measure the token width
+            measurer.textContent = token;
+            const tokenWidth = measurer.offsetWidth;
+
+            // If token is too wide, truncate it
+            if (tokenWidth > availableWidth) {
+                // Binary search to find the right length
+                let left = 0;
+                let right = token.length;
+                let bestFit = 0;
+
+                while (left <= right) {
+                    const mid = Math.floor((left + right) / 2);
+                    measurer.textContent = token.substring(0, mid) + '...';
+                    const width = measurer.offsetWidth;
+
+                    if (width <= availableWidth) {
+                        bestFit = mid;
+                        left = mid + 1;
+                    } else {
+                        right = mid - 1;
+                    }
+                }
+
+                return bestFit > 0 ? token.substring(0, bestFit) + '...' : '...';
+            }
+
+            return token;
+        });
+
+        document.body.removeChild(measurer);
+        messageEl.textContent = processedTokens.join('');
+    });
 }
 
 // ============================================================================
@@ -2968,6 +3037,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Handle resize
     window.addEventListener('resize', () => {
         renderAll();
+        truncateLongTokensInLogs();
     });
 
     // Check for auto-save recovery
@@ -3014,6 +3084,9 @@ function setupInspectorResize() {
         const clampedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
 
         rightPanel.style.width = `${clampedWidth}px`;
+
+        // Re-truncate log messages to fit the new panel width
+        truncateLongTokensInLogs();
     });
 
     document.addEventListener('mouseup', () => {
@@ -3073,6 +3146,9 @@ function setupLogsResize() {
         const clampedHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
 
         logsPanel.style.height = `${clampedHeight}px`;
+
+        // Re-truncate log messages to fit the new panel width
+        truncateLongTokensInLogs();
     });
 
     document.addEventListener('mouseup', () => {
