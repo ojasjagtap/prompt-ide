@@ -23,6 +23,12 @@ class ProviderRegistry {
             name: 'OpenAI',
             requiresApiKey: true
         });
+
+        this.registerProvider({
+            id: 'claude',
+            name: 'Claude (Anthropic)',
+            requiresApiKey: true
+        });
     }
 
     /**
@@ -188,6 +194,16 @@ class ProviderRegistry {
                 console.error('provider_list_models_error: openai', error);
                 throw error;
             }
+        } else if (providerId === 'claude') {
+            // Claude/Anthropic doesn't have a models endpoint
+            // Return a curated list of available Claude models
+            models = [
+                { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
+                { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' },
+                { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },
+                { id: 'claude-3-sonnet-20240229', name: 'Claude 3 Sonnet' },
+                { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku' }
+            ];
         }
 
         // Cache the results
@@ -213,6 +229,12 @@ class ProviderRegistry {
             const { OpenAIAdapter } = require('../renderer/model-adapters');
             const apiKey = await this.getApiKey('openai');
             adapter = new OpenAIAdapter({
+                apiKey: apiKey
+            });
+        } else if (providerId === 'claude') {
+            const { ClaudeAdapter } = require('../renderer/model-adapters');
+            const apiKey = await this.getApiKey('claude');
+            adapter = new ClaudeAdapter({
                 apiKey: apiKey
             });
         }

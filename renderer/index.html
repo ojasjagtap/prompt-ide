@@ -156,11 +156,29 @@
                     <div class="provider-form">
                         <div class="form-group">
                             <label for="openaiApiKey">API Key</label>
-                            <input type="password" id="openaiApiKey" class="form-input" placeholder="sk-...">
+                            <input type="password" id="openaiApiKey" class="form-input">
                         </div>
                         <div class="form-actions">
                             <button id="saveOpenaiButton" class="primary-button">Save</button>
                             <button id="removeOpenaiButton" class="secondary-button">Remove</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Claude/Anthropic Provider -->
+                <div class="provider-section">
+                    <div class="provider-header">
+                        <h4>Anthropic</h4>
+                        <span id="claudeStatus" class="provider-status">Not configured</span>
+                    </div>
+                    <div class="provider-form">
+                        <div class="form-group">
+                            <label for="claudeApiKey">API Key</label>
+                            <input type="password" id="claudeApiKey" class="form-input">
+                        </div>
+                        <div class="form-actions">
+                            <button id="saveClaudeButton" class="primary-button">Save</button>
+                            <button id="removeClaudeButton" class="secondary-button">Remove</button>
                         </div>
                     </div>
                 </div>
