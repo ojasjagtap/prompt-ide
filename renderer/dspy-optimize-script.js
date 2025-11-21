@@ -63,6 +63,25 @@ function createDSPyOptimizeNodeData() {
 // ============================================================================
 
 /**
+ * Extract optimized prompt text from DSPy node data
+ */
+function getOptimizedPromptText(node) {
+    if (!node.data.optimizedSignature || node.data.validationScore === 0) {
+        return '';
+    }
+
+    const instructions = node.data.optimizedSignature;
+    let instructionText = '';
+
+    if (instructions && typeof instructions === 'object') {
+        // Combine all instructions
+        instructionText = Object.values(instructions).join('\n\n');
+    }
+
+    return instructionText;
+}
+
+/**
  * Render DSPy optimize node HTML
  */
 function renderDSPyOptimizeNode(node, edges, nodes) {
@@ -97,12 +116,8 @@ function renderDSPyOptimizeNode(node, edges, nodes) {
                 <div>${node.data.optimizer} optimization</div>
                 <div style="font-size: 10px; color: #888; margin-top: 4px;">${datasetInfo}</div>
             </div>
-            ${node.data.validationScore > 0 ? `
-                <div class="optimization-stats" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #333; font-size: 11px;">
-                    <div style="color: #4a9eff;">Score: ${(node.data.validationScore * 100).toFixed(1)}%</div>
-                    ${node.data.optimizedDemos.length > 0 ? `<div style="color: #888;">${node.data.optimizedDemos.length} demos</div>` : ''}
-                </div>
-            ` : ''}
+            
+            <div class="node-output-viewer">${getOptimizedPromptText(node)}</div>
         </div>
     `;
 }
