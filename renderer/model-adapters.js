@@ -464,9 +464,152 @@ class OpenAIAdapter extends ModelAdapter {
     }
 }
 
+/**
+ * Claude/Anthropic Adapter with native tool use support
+ */
+class ClaudeAdapter extends ModelAdapter {
+    constructor({ apiKey }) {
+        super();
+        this.apiKey = apiKey;
+    }
+
+    prepareRequest({ prompt, toolsCatalog, settings, sessionState }) {
+        const hasTools = toolsCatalog && toolsCatalog.length > 0;
+
+        // Build messages array
+        // Initialize messages if not present
+        if (!sessionState.messages || sessionState.messages.length === 0) {
+            sessionState.messages = [{ role: 'user', content: prompt }];
+        }
+
+        const body = {
+            model: settings.model,
+            messages: sessionState.messages,
+            temperature: settings.temperature,
+            max_tokens: settings.maxTokens,
+            stream: true
+        };
+
+        // Add system message if tools are present
+        if (hasTools) {
+            body.system = 'You are a helpful assistant. You have access to tools that you can use when needed. However, if the user\'s question can be answered directly without using any tools, you should respond directly. Only use tools when they are necessary to complete the task.';
+        }
+
+        // Add tools if present (Anthropic format)
+        if (hasTools) {
+            body.tools = toolsCatalog.map(tool => ({
+                name: tool.name,
+                description: tool.description,
+                input_schema: tool.parametersSchema
+            }));
+        }
+
+        return { body, useChat: true };
+    }
+
+    parseChunk(chunk, chunkState) {
+        const result = { textDelta: null, toolCalls: null };
+
+        try {
+            const lines = chunk.split('\n').filter(l => l.trim());
+
+            for (const line of lines) {
+                // Anthropic streams with "event: " and "data: " lines
+                if (line.startsWith('event: ')) {
+                    chunkState.currentEvent = line.substring(7).trim();
+                    continue;
+                }
+
+                if (!line.startsWith('data: ')) continue;
+
+                const data = JSON.parse(line.substring(6));
+
+                // Handle different event types
+                if (data.type === 'content_block_start') {
+                    const content = data.content_block;
+                    if (content.type === 'tool_use') {
+                        if (!chunkState.toolCallsBuilder) {
+                            chunkState.toolCallsBuilder = {};
+                        }
+                        chunkState.toolCallsBuilder[data.index] = {
+                            id: content.id,
+                            name: content.name,
+                            input: ''
+                        };
+                    }
+                } else if (data.type === 'content_block_delta') {
+                    const delta = data.delta;
+
+                    if (delta.type === 'text_delta') {
+                        result.textDelta = delta.text;
+                    } else if (delta.type === 'input_json_delta') {
+                        // Accumulate tool input JSON
+                        if (chunkState.toolCallsBuilder && chunkState.toolCallsBuilder[data.index]) {
+                            chunkState.toolCallsBuilder[data.index].input += delta.partial_json;
+                        }
+                    }
+                } else if (data.type === 'message_delta') {
+                    // Check for stop reason
+                    if (data.delta?.stop_reason === 'tool_use' && chunkState.toolCallsBuilder) {
+                        // Finalize tool calls
+                        result.toolCalls = Object.values(chunkState.toolCallsBuilder).map(builder => ({
+                            id: builder.id,
+                            name: builder.name,
+                            arguments: JSON.parse(builder.input)
+                        }));
+                    }
+                }
+            }
+        } catch (error) {
+            // Ignore parse errors for partial chunks
+        }
+
+        return result;
+    }
+
+    continueWithToolResult(sessionState, toolResult) {
+        // Find the assistant message with tool use
+        const lastMessage = sessionState.messages[sessionState.messages.length - 1];
+
+        // Anthropic requires tool results in a specific format
+        // Add user message with tool result
+        sessionState.messages.push({
+            role: 'user',
+            content: [
+                {
+                    type: 'tool_result',
+                    tool_use_id: toolResult.id,
+                    content: this.formatToolResultForModel(toolResult.normalized)
+                }
+            ]
+        });
+
+        return sessionState;
+    }
+
+    formatToolResultForModel(normalized) {
+        if (!normalized.ok) {
+            return JSON.stringify({
+                error: normalized.error.message || 'Unknown error'
+            });
+        }
+
+        if (normalized.kind === 'text') {
+            return normalized.result;
+        } else if (normalized.kind === 'json') {
+            return JSON.stringify(normalized.result);
+        } else if (normalized.kind === 'bytes') {
+            return `[Base64 Data: ${normalized.result.length} chars]`;
+        }
+
+        return String(normalized.result);
+    }
+}
+
 module.exports = {
     ModelAdapter,
     OllamaAdapter,
     OpenAIAdapter,
+    ClaudeAdapter,
     FallbackPromptAdapter
 };

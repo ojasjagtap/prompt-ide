@@ -1981,6 +1981,19 @@ async function callModelStreaming(prompt, model, temperature, maxTokens, onChunk
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiKey}`
             };
+        } else if (provider === 'claude') {
+            url = 'https://api.anthropic.com/v1/messages';
+            const apiKey = await providerRegistry.getApiKey('claude');
+
+            if (!apiKey) {
+                throw new Error('Claude API key not configured');
+            }
+
+            headers = {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01'
+            };
         } else {
             throw new Error(`Unsupported provider: ${provider}`);
         }
@@ -2227,12 +2240,16 @@ async function openSettingsModal() {
     modal.style.display = 'flex';
 
     // Load current OpenAI settings
-    const apiKey = await providerRegistry.getApiKey('openai');
+    const openaiApiKey = await providerRegistry.getApiKey('openai');
+    document.getElementById('openaiApiKey').value = openaiApiKey || '';
 
-    document.getElementById('openaiApiKey').value = apiKey || '';
+    // Load current Claude settings
+    const claudeApiKey = await providerRegistry.getApiKey('claude');
+    document.getElementById('claudeApiKey').value = claudeApiKey || '';
 
     // Update status
     await updateOpenAIStatus();
+    await updateClaudeStatus();
 
     // Load snap-to-grid setting
     const snapToGridCheckbox = document.getElementById('snapToGridCheckbox');
@@ -2292,6 +2309,57 @@ async function removeOpenAISettings() {
         document.getElementById('openaiApiKey').value = '';
         await updateOpenAIStatus();
         addLog('info', 'OpenAI API key removed');
+    }
+}
+
+async function updateClaudeStatus() {
+    const statusEl = document.getElementById('claudeStatus');
+    const isConfigured = await providerRegistry.isProviderConfigured('claude');
+
+    if (isConfigured) {
+        statusEl.textContent = 'Configured';
+        statusEl.className = 'provider-status provider-status-active';
+    } else {
+        statusEl.textContent = 'Not configured';
+        statusEl.className = 'provider-status';
+    }
+}
+
+async function saveClaudeSettings() {
+    const apiKey = document.getElementById('claudeApiKey').value.trim();
+
+    if (!apiKey) {
+        alert('Please enter an API key');
+        return;
+    }
+
+    try {
+        await providerRegistry.setApiKey('claude', apiKey);
+        await updateClaudeStatus();
+
+        // Try to fetch models to validate the key
+        const models = await providerRegistry.listModels('claude');
+        addLog('info', `Claude configured with ${models.length} models`);
+
+        // Refresh models in state if a model node is using Claude
+        for (const node of state.nodes.values()) {
+            if (node.type === 'model' && node.data.provider === 'claude') {
+                updateInspector();
+                break;
+            }
+        }
+    } catch (error) {
+        addLog('error', `provider_auth_error: claude - ${error.message}`);
+        alert(`Failed to validate Claude API key: ${error.message}`);
+    }
+}
+
+async function removeClaudeSettings() {
+    if (confirm('Are you sure you want to remove the Claude API key?')) {
+        await providerRegistry.removeApiKey('claude');
+        document.getElementById('claudeApiKey').value = '';
+        await updateClaudeStatus();
+        addLog('info', 'Claude API key removed');
     }
 }
 
@@ -2760,6 +2828,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     document.getElementById('closeSettingsButton').addEventListener('click', closeSettingsModal);
     document.getElementById('saveOpenaiButton').addEventListener('click', saveOpenAISettings);
     document.getElementById('removeOpenaiButton').addEventListener('click', removeOpenAISettings);
+    document.getElementById('saveClaudeButton').addEventListener('click', saveClaudeSettings);
+    document.getElementById('removeClaudeButton').addEventListener('click', removeClaudeSettings);
 
     // Snap to grid checkbox
     document.getElementById('snapToGridCheckbox').addEventListener('change', (e) => {
