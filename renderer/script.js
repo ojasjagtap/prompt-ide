@@ -26,6 +26,7 @@ const {
     renderDSPyOptimizeNode,
     renderDSPyOptimizeInspector,
     isValidDSPyOptimizeConnection,
+    validateDSPyOptimizeNode,
     executeDSPyOptimizeNode
 } = require('./dspy-optimize-script');
 const { checkDSPyEnvironment } = require('./dspy-worker');
@@ -259,7 +260,7 @@ function createNode(type, worldX, worldY) {
             maxTokens: 512,
             output: ''
         };
-    } else if (type === 'optimize') {
+    } else if (type === 'evolutionary-optimize') {
         node.data = createEvolutionaryOptimizeNodeData();
     } else if (type === 'dspy-optimize') {
         node.data = createDSPyOptimizeNodeData();
@@ -433,7 +434,7 @@ function renderNode(id) {
                 <div class="node-output-viewer">${node.data.output}</div>
             </div>
         `;
-    } else if (node.type === 'optimize') {
+    } else if (node.type === 'evolutionary-optimize') {
         nodeEl.innerHTML = renderEvolutionaryOptimizeNode(node, state.edges, state.nodes);
     } else if (node.type === 'dspy-optimize') {
         nodeEl.innerHTML = renderDSPyOptimizeNode(node, state.edges, state.nodes);
@@ -889,7 +890,7 @@ function updateInspector() {
         document.getElementById('inspectorRunModel').addEventListener('click', async () => {
             await runModelNode(node.id);
         });
-    } else if (node.type === 'optimize') {
+    } else if (node.type === 'evolutionary-optimize') {
         const inspector = renderEvolutionaryOptimizeInspector(node, updateNodeDisplay, state.edges, state.nodes, state);
         inspectorContent.innerHTML = inspector.html;
         inspector.setupListeners({
@@ -1413,9 +1414,9 @@ async function runFlow() {
             }
         }
 
-        // Validate Optimize nodes that will run in the flow
+        // Validate Evolutionary Optimize nodes that will run in the flow
         if (sourceNode?.type === 'model' &&
-            targetNode?.type === 'optimize' &&
+            targetNode?.type === 'evolutionary-optimize' &&
             edge.sourcePin === 'output' &&
             edge.targetPin === 'input') {
 
@@ -1436,6 +1437,21 @@ async function runFlow() {
 
             if (!hasPromptNode) {
                 addLog('error', `Requires a Prompt node with system prompt`, targetNode.id);
+                hasError = true;
+            }
+        }
+
+        // Validate DSPy Optimize nodes that will run in the flow
+        if (sourceNode?.type === 'model' &&
+            targetNode?.type === 'dspy-optimize' &&
+            edge.sourcePin === 'output' &&
+            edge.targetPin === 'input') {
+
+            const validationErrors = validateDSPyOptimizeNode(targetNode, state.edges, state.nodes);
+            if (validationErrors.length > 0) {
+                for (const error of validationErrors) {
+                    addLog('error', error, targetNode.id);
+                }
                 hasError = true;
             }
         }
@@ -1558,7 +1574,7 @@ async function runFlow() {
             for (const edge of state.edges.values()) {
                 if (edge.sourceNodeId === modelNode.id && edge.sourcePin === 'output') {
                     const targetNode = state.nodes.get(edge.targetNodeId);
-                    if (targetNode?.type === 'optimize') {
+                    if (targetNode?.type === 'evolutionary-optimize' || targetNode?.type === 'dspy-optimize') {
                         updateNodeDisplay(targetNode.id);
                         // Also update inspector if this Optimize node is selected
                         if (state.selectedNodeId === targetNode.id) {
@@ -1588,16 +1604,28 @@ async function runFlow() {
         addLog('info', `Running ${optimizeNode.data.title}`);
 
         try {
-            await executeEvolutionaryOptimizeNode(
-                optimizeNode,
-                state.edges,
-                state.nodes,
-                callModelStreaming,
-                updateNodeDisplay,
-                setNodeStatus,
-                addLog,
-                state.runAbortController.signal
-            );
+            if (optimizeNode.type === 'evolutionary-optimize') {
+                await executeEvolutionaryOptimizeNode(
+                    optimizeNode,
+                    state.edges,
+                    state.nodes,
+                    callModelStreaming,
+                    updateNodeDisplay,
+                    setNodeStatus,
+                    addLog,
+                    state.runAbortController.signal
+                );
+            } else if (optimizeNode.type === 'dspy-optimize') {
+                await executeDSPyOptimizeNode(
+                    optimizeNode,
+                    state.edges,
+                    state.nodes,
+                    updateNodeDisplay,
+                    setNodeStatus,
+                    addLog,
+                    state.runAbortController.signal
+                );
+            }
         } catch (error) {
             if (error.name === 'AbortError') {
                 addLog('warn', 'Optimization canceled');
@@ -1652,9 +1680,9 @@ function findOptimizeNodesToRun(edges, nodes) {
         const sourceNode = nodes.get(edge.sourceNodeId);
         const targetNode = nodes.get(edge.targetNodeId);
 
-        // Find Model → Optimize connections
+        // Find Model → Optimize connections (including both evolutionary-optimize and dspy-optimize nodes)
         if (sourceNode?.type === 'model' &&
-            targetNode?.type === 'optimize' &&
+            (targetNode?.type === 'evolutionary-optimize' || targetNode?.type === 'dspy-optimize') &&
             edge.sourcePin === 'output' &&
             edge.targetPin === 'input') {
             optimizeNodes.push(targetNode);
@@ -1669,7 +1697,7 @@ function findOptimizeNodesToRun(edges, nodes) {
  */
 async function runOptimizeNode(nodeId) {
     const optimizeNode = state.nodes.get(nodeId);
-    if (!optimizeNode || (optimizeNode.type !== 'optimize' && optimizeNode.type !== 'dspy-optimize')) return;
+    if (!optimizeNode || (optimizeNode.type !== 'evolutionary-optimize' && optimizeNode.type !== 'dspy-optimize')) return;
 
     // Disable run buttons
     state.isOptimizing = true;
@@ -1684,7 +1712,7 @@ async function runOptimizeNode(nodeId) {
     state.optimizationAbortController = new AbortController();
 
     try {
-        if (optimizeNode.type === 'optimize') {
+        if (optimizeNode.type === 'evolutionary-optimize') {
             await executeEvolutionaryOptimizeNode(
                 optimizeNode,
                 state.edges,

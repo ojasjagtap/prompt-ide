@@ -280,7 +280,7 @@ function renderEvolutionaryOptimizeInspector(node, updateNodeDisplay, edges, nod
 function isValidEvolutionaryOptimizeConnection(sourceNode, sourcePin, targetNode, targetPin, edges) {
     // Allow Model.output → Optimize.input (model response to optimize)
     if (sourceNode.type === 'model' && sourcePin === 'output' &&
-        targetNode.type === 'optimize' && targetPin === 'input') {
+        targetNode.type === 'evolutionary-optimize' && targetPin === 'input') {
 
         // Check if optimize node already has a connection to its input pin
         if (edges) {
